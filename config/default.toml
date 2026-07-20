@@ -1,0 +1,12 @@
+[application]
+name = "JOCHEN X"
+version = "0.1.0"
+log_level = "INFO"
+theme_mode = "system"
+developer_enabled = false
+
+[database]
+path = "data/jochen_x.sqlite3"
+
+[plugins]
+directory = "plugins"

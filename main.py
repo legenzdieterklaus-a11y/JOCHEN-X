@@ -1,23 +1,13 @@
-import sys
+"""JOCHEN X executable entry point."""
 
-from PySide6.QtWidgets import QApplication
-
-from app.main_window import MainWindow
-from app.theme import apply_theme
+from app.host import ApplicationHost
 
 
-def main():
-
-    app = QApplication(sys.argv)
-
-    apply_theme(app)
-
-    window = MainWindow()
-
-    window.show()
-
-    sys.exit(app.exec())
+def main() -> int:
+    """Start the desktop application and return its exit code."""
+    host = ApplicationHost.create_default()
+    return host.run()
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

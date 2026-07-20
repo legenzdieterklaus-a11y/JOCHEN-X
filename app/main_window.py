@@ -1,10 +1,6 @@
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget,
     QMainWindow,
-    QTextEdit,
-    QPushButton,
-    QLineEdit,
     QHBoxLayout,
     QVBoxLayout,
 )
@@ -12,6 +8,8 @@ from PySide6.QtWidgets import (
 from ui.sidebar import Sidebar
 from ui.dashboard import Dashboard
 from ui.status_bar import StatusBar
+from ui.chat_page import ChatPage
+from ui.input_bar import InputBar
 
 from core.worker import WorkerThread
 
@@ -21,7 +19,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("JOCHEN X v0.2 Professional")
+        self.setWindowTitle("JOCHEN X v0.3")
 
         self.resize(1600, 900)
 
@@ -65,52 +63,38 @@ class MainWindow(QMainWindow):
         # Chat
         ####################################################
 
-        self.chat = QTextEdit()
-
-        self.chat.setReadOnly(True)
-
-        self.chat.append("🤖 Willkommen bei JOCHEN X")
-
-        self.chat.append("")
-
-        self.chat.append("System erfolgreich gestartet.")
-
-        self.chat.append("")
+        self.chat = ChatPage()
 
         self.right_layout.addWidget(self.chat)
+
+        self.chat.add_ai_message(
+            "👋 Willkommen bei JOCHEN X",
+            "System"
+        )
+
+        self.chat.add_ai_message(
+            "System erfolgreich gestartet.",
+            ""
+        )
 
         ####################################################
         # Eingabe
         ####################################################
 
-        bottom = QHBoxLayout()
+        self.input_bar = InputBar()
 
-        self.input = QLineEdit()
+        self.right_layout.addWidget(self.input_bar)
 
-        self.input.setPlaceholderText(
-            "Schreibe eine Nachricht..."
-        )
-
-        self.input.returnPressed.connect(
+        self.input_bar.send_button.clicked.connect(
             self.send_message
         )
 
-        self.send_button = QPushButton("Senden")
-
-        self.send_button.clicked.connect(
+        self.input_bar.input.returnPressed.connect(
             self.send_message
         )
-
-        self.send_button.setMinimumHeight(42)
-
-        bottom.addWidget(self.input)
-
-        bottom.addWidget(self.send_button)
-
-        self.right_layout.addLayout(bottom)
 
         ####################################################
-        # Statusbar
+        # StatusBar
         ####################################################
 
         self.status = StatusBar()
@@ -118,39 +102,38 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self.status)
 
         ####################################################
-        # Thread
+        # Worker
+        ####################################################
 
         self.worker = None
-
-        ####################################################
+          ####################################################
     # Nachricht senden
     ####################################################
 
     def send_message(self):
 
-        prompt = self.input.text().strip()
+        prompt = self.input_bar.text().strip()
 
         if not prompt:
             return
 
-        # Nachricht anzeigen
-        self.chat.append(f"\n🧑 Du:\n{prompt}\n")
+        self.chat.add_user_message(prompt)
 
-        # Eingabe sperren
-        self.input.setEnabled(False)
-        self.send_button.setEnabled(False)
+        self.input_bar.set_enabled(False)
 
-        # Status
         self.status.set_status("🟡 JOCHEN denkt...")
 
-        # Eingabefeld leeren
-        self.input.clear()
+        self.input_bar.clear()
 
-        # Worker starten
         self.worker = WorkerThread(prompt)
 
-        self.worker.finished.connect(self.receive_answer)
-        self.worker.error.connect(self.show_error)
+        self.worker.finished.connect(
+            self.receive_answer
+        )
+
+        self.worker.error.connect(
+            self.show_error
+        )
 
         self.worker.start()
 
@@ -160,19 +143,12 @@ class MainWindow(QMainWindow):
 
     def receive_answer(self, answer):
 
-        self.chat.append(f"\n🤖 JOCHEN:\n{answer}\n")
+        self.chat.add_ai_message(answer)
 
-        # Eingabe wieder freigeben
-        self.input.setEnabled(True)
-        self.send_button.setEnabled(True)
+        self.input_bar.set_enabled(True)
 
-        self.input.setFocus()
+        self.input_bar.focus()
 
-        # Nach unten scrollen
-        scrollbar = self.chat.verticalScrollBar()
-        scrollbar.setValue(scrollbar.maximum())
-
-        # Status zurücksetzen
         self.status.set_status("🟢 Bereit")
 
     ####################################################
@@ -181,11 +157,12 @@ class MainWindow(QMainWindow):
 
     def show_error(self, error):
 
-        self.chat.append(f"\n❌ Fehler:\n{error}\n")
+        self.chat.add_ai_message(
+            f"❌ Fehler:\n{error}"
+        )
 
-        self.input.setEnabled(True)
-        self.send_button.setEnabled(True)
+        self.input_bar.set_enabled(True)
 
-        self.input.setFocus()
+        self.input_bar.focus()
 
-        self.status.set_status("🔴 Fehler")    
+        self.status.set_status("🔴 Fehler")  
