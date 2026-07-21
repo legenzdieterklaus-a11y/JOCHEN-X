@@ -25,7 +25,7 @@ from core.registry import ServiceRegistry
 from core.scheduler import TaskScheduler
 from core.version import Version, VersionManager
 from database.sqlite import ConnectionManager, MigrationManager, SettingsRepository
-from plugins.loader import PluginLoader, PluginManifest
+from plugins.loader import PluginCatalog, PluginLoader, PluginManifest
 from styles.theme import ThemeEngine
 
 from app.context import ApplicationContext, RuntimeState
@@ -247,11 +247,16 @@ class PluginDiscoveryStage:
             logger.error("plugins.discovery_failed", exc_info=error)
             PluginFailed("", str(error)).publish(events)
             context.manifests = ()
+            registry.register(PluginCatalog, PluginCatalog(()))
             return
         for manifest in manifests:
             PluginLoading(manifest.identifier).publish(events)
             PluginLoaded(manifest.identifier, str(manifest.version)).publish(events)
         context.manifests = manifests
+        registry.register(
+            PluginCatalog,
+            PluginCatalog(tuple(manifest.identifier for manifest in manifests)),
+        )
         logger.info("plugins.discovered", extra={"context": {"count": len(manifests)}})
 
 

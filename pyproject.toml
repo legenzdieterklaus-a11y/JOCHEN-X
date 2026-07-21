@@ -1,7 +1,7 @@
 [project]
 name = "jochen-x"
-version = "0.1.0"
-description = "JOCHEN X foundation"
+version = "0.6.0"
+description = "JOCHEN X desktop framework"
 requires-python = ">=3.13"
 dependencies = ["PySide6>=6.8"]
 

@@ -15,6 +15,18 @@ class PluginManifest:
     required_application_version: Version
 
 
+@dataclass(frozen=True, slots=True)
+class PluginCatalog:
+    """Authoritative immutable snapshot of bootstrap-discovered plugins."""
+
+    identifiers: tuple[str, ...]
+
+    @property
+    def count(self) -> int:
+        """Return the number of discovered compatible plugins."""
+        return len(self.identifiers)
+
+
 class PluginLoader:
     """Discovers manifests but never imports or runs plugin code."""
     def __init__(self, directory: Path, versions: VersionManager) -> None:
