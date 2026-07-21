@@ -70,7 +70,7 @@ class ConfigurationService:
         self._profile_path.write_text(
             "[application]\nname = " + repr(data["name"]) + "\nversion = " + repr(data["version"]) +
             "\nlog_level = " + repr(data["log_level"]) + "\ntheme_mode = " + repr(str(data["theme_mode"])) +
-            "\ndeveloper_enabled = " + repr(data["developer_enabled"]) +
+            "\ndeveloper_enabled = " + str(data["developer_enabled"]).lower() +
             "\n\n[database]\npath = " + repr(data["database_path"]) +
             "\n\n[plugins]\ndirectory = " + repr(data["plugin_directory"]) + "\n", encoding="utf-8")
 

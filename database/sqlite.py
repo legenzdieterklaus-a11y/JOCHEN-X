@@ -14,11 +14,14 @@ class ConnectionManager:
 
     def connect(self) -> sqlite3.Connection:
         """Open a configured connection."""
+        connection: sqlite3.Connection | None = None
         try:
             connection = sqlite3.connect(self.path)
             connection.execute("PRAGMA foreign_keys = ON")
             return connection
         except sqlite3.Error as error:
+            if connection is not None:
+                connection.close()
             raise DatabaseError(str(error)) from error
 
 
@@ -32,14 +35,18 @@ class MigrationManager:
 
     def migrate(self) -> None:
         """Create the allowed schema-version and settings tables."""
-        with self._connections.connect() as connection:
-            connection.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)")
-            row = connection.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
-            if row is None:
-                connection.execute("INSERT INTO schema_version(version) VALUES (?)", (self.CURRENT_VERSION,))
-            elif row[0] != self.CURRENT_VERSION:
-                raise DatabaseError(f"Unsupported schema version: {row[0]}")
-            connection.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        connection = self._connections.connect()
+        try:
+            with connection:
+                connection.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)")
+                row = connection.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
+                if row is None:
+                    connection.execute("INSERT INTO schema_version(version) VALUES (?)", (self.CURRENT_VERSION,))
+                elif row[0] != self.CURRENT_VERSION:
+                    raise DatabaseError(f"Unsupported schema version: {row[0]}")
+                connection.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        finally:
+            connection.close()
 
 
 class SettingsRepository:
@@ -50,11 +57,18 @@ class SettingsRepository:
 
     def get(self, key: str) -> str | None:
         """Return a value or `None` when it has not been saved."""
-        with self._connections.connect() as connection:
+        connection = self._connections.connect()
+        try:
             row = connection.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        finally:
+            connection.close()
         return None if row is None else str(row[0])
 
     def set(self, key: str, value: str) -> None:
         """Atomically insert or update a setting."""
-        with self._connections.connect() as connection:
-            connection.execute("INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
+        connection = self._connections.connect()
+        try:
+            with connection:
+                connection.execute("INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
+        finally:
+            connection.close()
