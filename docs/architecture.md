@@ -13,7 +13,9 @@ deterministic phase order managed by `BootstrapManager`:
 | `INITIALIZE` | `ThemeStage` | `ThemeEngine` registration |
 | `INITIALIZE` | `SchedulerStage` | `TaskScheduler` registration |
 | `LOAD_PLUGINS` | `PluginDiscoveryStage` | Manifest-only plugin discovery (see [Plugin Framework](extensions.md)) |
+| `LOAD_PLUGINS` | `PluginSecurityStage` | Trust verification of discovered manifests (see [ADR-011](adr/011-sdk-host-integration.md)) |
 | `LOAD_RESOURCES` | `ResourceStage` | `ResourceManager` registration |
+| `FINALIZE` | `PluginActivationStage` | SDK-driven plugin import, wiring, and start (see [ADR-011](adr/011-sdk-host-integration.md)) |
 | `FINALIZE` | `DeveloperToolsStage` | Optional developer platform (see [Developer Platform](developer.md)) |
 | `FINALIZE` | `DependencyInjectionStage` | `ServiceProvider` facade, container validation |
 
@@ -27,6 +29,7 @@ or executed by the foundation (see [Plugin Framework](extensions.md) §2.3 and
 
 **Cross-references:** [Core](core.md) · [Events](events.md) ·
 [Security](security.md) · [Plugin Framework](extensions.md) ·
+[Plugin SDK](sdk.md) · [ADR-011](adr/011-sdk-host-integration.md) ·
 [Diagnostics](diagnostics.md) · [Developer Platform](developer.md)
 
 ## Proposed ADRs

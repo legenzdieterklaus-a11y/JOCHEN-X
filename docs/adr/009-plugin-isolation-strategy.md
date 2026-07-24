@@ -1,6 +1,6 @@
 # ADR 009: Plugin isolation strategy
 
-**Status:** Open – requires decision before implementation
+**Status:** Resolved by [ADR-011](011-sdk-host-integration.md) §D2 — Option C (thread-based isolation) adopted as default; Option B (subprocess) deferred as future opt-in
 
 ## Context
 

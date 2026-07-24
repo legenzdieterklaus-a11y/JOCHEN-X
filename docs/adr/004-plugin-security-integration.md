@@ -1,6 +1,6 @@
 # ADR 004: Plugin security integration timing
 
-**Status:** Open – requires decision before implementation
+**Status:** Resolved by [ADR-011](011-sdk-host-integration.md) §D3 — `PluginSecurityStage` runs in `LOAD_PLUGINS` after discovery
 
 ## Context
 

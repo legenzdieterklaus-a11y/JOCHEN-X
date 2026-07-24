@@ -1,6 +1,6 @@
 # ADR 008: Plugin context definition
 
-**Status:** Open – requires decision before implementation
+**Status:** Resolved by [ADR-010](010-plugin-sdk-architecture.md) (Option C adopted) and [ADR-011](011-sdk-host-integration.md) §D4 (host-side wiring)
 
 ## Context
 
