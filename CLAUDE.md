@@ -126,6 +126,45 @@ python -m pytest -q                      # Kompletter Lauf
 - `__all__` in jedem Modul
 - Minimale Kommentare: nur das Warum, nie das Was
 
+## Definition of Done
+
+Eine Aufgabe gilt als abgeschlossen, wenn:
+
+- die Architektur eingehalten wurde
+- relevante Tests erfolgreich sind
+- Dokumentation aktualisiert wurde (falls erforderlich)
+- keine unnötigen Dateien geändert wurden
+- der Commit thematisch sauber ist
+- keine unbegründeten TODOs hinterlassen wurden
+
+## Architekturänderungen
+
+Bei Änderungen an Core, Bootstrap, ServiceRegistry, Plugin-System, SDK oder Event-System vor der Implementierung: Auswirkungen analysieren, betroffene ADRs identifizieren, Alternativen vergleichen, Risiken dokumentieren, Empfehlung begründen.
+
+## Sicherheitsregeln
+
+- Plugin-Code niemals vor erfolgreicher Sicherheitsprüfung ausführen
+- PluginSecurityStage darf nicht umgangen werden
+- Secrets niemals loggen
+- Sichere Standardwerte bevorzugen
+- Sicherheitsprüfungen niemals deaktivieren, um Implementierungen zu vereinfachen
+
+## Performance-Regeln
+
+- Verständlicher Code vor Mikrooptimierungen
+- Optimierungen nur mit nachvollziehbarer Begründung
+- Keine unnötigen Abhängigkeiten
+- Bestehende Infrastruktur wiederverwenden
+- Speicher-/CPU-intensive Lösungen vermeiden, wenn einfachere existieren
+
+## Architekturverantwortung
+
+Wenn eine Anweisung der bestehenden Architektur widerspricht, technische Schulden erzeugt, ADRs verletzt oder unnötige Komplexität einführt:
+
+- Ausdrücklich darauf hinweisen
+- Auswirkungen erklären
+- Mindestens eine bessere Alternative vorschlagen
+
 ## Versionierung
 
 - Anwendungsversion: `pyproject.toml` → `project.version`
