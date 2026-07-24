@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass
 from typing import Protocol
-import os
 import time
 
 

@@ -1,6 +1,5 @@
 """Integration-oriented tests for the implemented foundation boundaries."""
 
-import logging
 from pathlib import Path
 import tempfile
 import unittest

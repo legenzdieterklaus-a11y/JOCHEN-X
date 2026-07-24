@@ -17,7 +17,6 @@ from pathlib import Path
 
 from core.events import EventBus
 from core.observability import HealthStatus
-from core.registry import ServiceRegistry
 
 from app.bootstrap import BootstrapManager
 from app.concurrency import WorkerPool
