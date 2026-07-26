@@ -1,6 +1,9 @@
 # Contributing zu JOCHEN X
 
-Dieses Dokument beschreibt den Arbeitsablauf für menschliche Entwickler und KI-Assistenten. Architekturregeln stehen in [CLAUDE.md](CLAUDE.md), die Systemübersicht in [ARCHITECTURE.md](ARCHITECTURE.md).
+Dieses Dokument beschreibt den Arbeitsablauf für menschliche Entwickler und KI-Assistenten.
+
+**Verbindliche Architekturreferenz:** [Architecture Book v2.0](docs/architecture-book-v2.md) (APPROVED / FROZEN).  
+Arbeitsregeln: [CLAUDE.md](CLAUDE.md) · Visuelle Übersicht: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
@@ -122,17 +125,24 @@ Nummerierung fortlaufend, aktuell ab ADR-012. Bestehende ADRs: [Verzeichnis](ARC
 
 | Dokument | Inhalt |
 |---|---|
+| `docs/architecture-book-v2.md` | **Verbindliche Architekturreferenz** (v2.0 frozen) |
 | `CLAUDE.md` | Arbeitsregeln, Projektstruktur, Stilregeln |
 | `ARCHITECTURE.md` | Systemübersicht mit Diagrammen |
 | `ROADMAP.md` | Entwicklungspakete und Status |
 | `docs/*.md` | Modul-Spezifikationen |
 | `docs/adr/*.md` | Architekturentscheidungen |
 
+### Architecture Book Freeze
+
+- `docs/architecture-book-v2.md` darf inhaltlich nicht mehr geändert werden.
+- Architekturänderungen erfordern eine neue Book-Version (z. B. `architecture-book-v2.1.md` / v3.0) und passende ADRs.
+- Modul-Docs und Code müssen mit dem eingefrorenen Book konsistent bleiben oder bewusst über ADR + Versionsupdate angepasst werden.
+
 ### Wann Dokumentation aktualisiert werden muss
 
 - Neue Module oder öffentliche APIs → `docs/<modul>.md`
-- Architekturentscheidungen → `docs/adr/`
-- Geänderter Bootstrap oder Lifecycle → `docs/architecture.md` und `ARCHITECTURE.md`
+- Architekturentscheidungen → `docs/adr/` (und bei Contract-Änderungen neue Book-Version)
+- Geänderter Bootstrap oder Lifecycle → `docs/architecture.md` und `ARCHITECTURE.md` (nur sofern mit Book/ADR konsistent)
 - Neues Entwicklungspaket → `ROADMAP.md`
 
 ---

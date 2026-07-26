@@ -34,6 +34,17 @@ tests/          Pytest-basierte Tests
 
 ## Architektur
 
+### Verbindliche Architekturreferenz
+
+**[`docs/architecture-book-v2.md`](docs/architecture-book-v2.md)** (Architecture Book v2.0) ist die verbindliche Architekturreferenz für JOCHEN X.
+
+- Status: **APPROVED / FROZEN** (Tags: `architecture-book-v2.0`, `core-runtime-v1.0.0`)
+- Keine inhaltlichen Änderungen an v2.0
+- Zukünftige Anpassungen nur über neue Dokumentversionen (z. B. v2.1 oder v3.0) und dokumentierte ADRs in `docs/adr/`
+- Alle Implementierungen und Spezifikationen müssen mit diesem Dokument konsistent sein oder bewusst über ADR + Versionsupdate abweichen
+
+Visuelle Kurzübersicht: [`ARCHITECTURE.md`](ARCHITECTURE.md)
+
 ### Schichtmodell
 
 ```

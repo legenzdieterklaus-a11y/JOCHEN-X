@@ -1,7 +1,10 @@
 # JOCHEN X — Architekturübersicht
 
 Diese Datei gibt einen visuellen Überblick über die Gesamtarchitektur.
-Für Detailentscheidungen siehe die [ADRs](docs/adr/).
+
+**Verbindliche Architekturreferenz:** [Architecture Book v2.0](docs/architecture-book-v2.md) (APPROVED / FROZEN).  
+Inhaltliche Abweichungen erfordern eine neue Book-Version und dokumentierte ADRs.  
+Für Einzelentscheidungen siehe zusätzlich die [ADRs](docs/adr/).
 
 ---
 
