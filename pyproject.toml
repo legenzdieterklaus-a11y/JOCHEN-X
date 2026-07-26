@@ -11,8 +11,34 @@ dependencies = [
     "PySide6>=6.8"
 ]
 
-[tool.setuptools]
-packages = []
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.mypy]
+strict = true
+python_version = "3.13"
+warn_return_any = true
+warn_unused_configs = true
+mypy_path = "src"
+
+[tool.ruff]
+src = ["src"]
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "D203",    # conflicts with D211
+    "D213",    # conflicts with D212
+    "COM812",  # conflicts with formatter
+    "ISC001",  # conflicts with formatter
+    "TC001",   # TYPE_CHECKING for app imports — from __future__ annotations handles this
+    "TC003",   # TYPE_CHECKING for stdlib imports — same reason
+    "ANN401",  # Any in *args/**kwargs needed for generic pools
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "D", "ARG002", "SLF001", "BLE001", "PLR2004"]
