@@ -14,7 +14,10 @@ import logging
 from dataclasses import dataclass, field
 from enum import IntEnum
 from pathlib import Path
-from typing import Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar
+
+if TYPE_CHECKING:
+    from sdk.plugin import PluginRuntime
 
 from config.settings import ApplicationSettings, ConfigurationService
 from core.environment import Environment
@@ -30,9 +33,32 @@ from styles.theme import ThemeEngine
 
 from app.context import ApplicationContext, RuntimeState
 from app.di import DisposableRegistry, ServiceProvider
-from app.events import PluginFailed, PluginLoaded, PluginLoading
+from app.events import PluginActivated, PluginActivating, PluginFailed, PluginLoaded, PluginLoading
 from app.resources import ResourceManager
 from app.state_machine import ApplicationStateMachine
+
+__all__ = [
+    "BootstrapContext",
+    "BootstrapError",
+    "BootstrapManager",
+    "BootstrapStage",
+    "ConfigurationStage",
+    "DatabaseStage",
+    "DependencyInjectionStage",
+    "DeveloperToolsStage",
+    "EnvironmentStage",
+    "LoggingStage",
+    "PluginActivationStage",
+    "PluginDiscoveryStage",
+    "PluginRuntimePool",
+    "PluginSecurityStage",
+    "RegistryStage",
+    "ResourceStage",
+    "SchedulerStage",
+    "StartupPhase",
+    "ThemeStage",
+    "default_stages",
+]
 
 T = TypeVar("T")
 
@@ -73,6 +99,8 @@ class BootstrapContext:
     versions: VersionManager | None = None
     plugins: PluginLoader | None = None
     manifests: tuple[PluginManifest, ...] = ()
+    admitted_manifests: tuple[PluginManifest, ...] = ()
+    plugin_runtimes: tuple[PluginRuntime, ...] = ()
     theme: ThemeEngine | None = None
     resources: ResourceManager | None = None
     scheduler: TaskScheduler | None = None
@@ -261,6 +289,208 @@ class PluginDiscoveryStage:
 
 
 @dataclass(frozen=True, slots=True)
+class PluginSecurityStage:
+    """Verifies discovered plugin manifests against integrity policy and trust ledger.
+
+    Executes two validation steps per ADR-005 D5 and the Runtime Pipeline:
+    Step 1 — Integrity Validation: evaluates structural evidence against
+    the integrity policy and determines trust level / signature status.
+    Step 2 — API Version Gate (WP-03): checks manifest-level API version
+    compatibility BEFORE any plugin code is imported.
+    """
+
+    name: str = "plugin_security"
+    phase: StartupPhase = StartupPhase.LOAD_PLUGINS
+
+    def execute(self, context: BootstrapContext) -> None:
+        from sdk.version import SDK_API_VERSION, ApiVersion
+
+        from app.security.events import PluginRejected
+        from app.security.plugin_security import IntegrityPolicy, PluginSecurity
+
+        events = _require(context.events, "events")
+        registry = _require(context.registry, "registry")
+        logger = _require(context.logger, "logger")
+        try:
+            security = registry.get(PluginSecurity)
+        except LookupError:
+            security = PluginSecurity(events, logger=logger)
+            registry.register(PluginSecurity, security)
+
+        host_api = ApiVersion.parse(SDK_API_VERSION)
+        admitted: list[PluginManifest] = []
+
+        for manifest in context.manifests:
+            identifier = manifest.identifier
+
+            integrity = security.validate_integrity(manifest)
+            if not integrity.admitted:
+                logger.warning(
+                    "plugins.security.integrity_rejected",
+                    extra={"context": {
+                        "identifier": identifier,
+                        "reason": integrity.reason,
+                        "trust": integrity.trust.value,
+                    }},
+                )
+                continue
+
+            if manifest.api_version is not None:
+                plugin_api = ApiVersion.parse(str(manifest.api_version))
+                if not host_api.is_compatible_with(plugin_api):
+                    reason = (
+                        f"API version incompatible: plugin requires "
+                        f"{manifest.api_version}, host provides {SDK_API_VERSION}"
+                    )
+                    PluginRejected(identifier, reason).publish(events)
+                    logger.warning(
+                        "plugins.security.api_version_rejected",
+                        extra={"context": {
+                            "identifier": identifier,
+                            "plugin_api": str(manifest.api_version),
+                            "host_api": SDK_API_VERSION,
+                        }},
+                    )
+                    continue
+
+            admitted.append(manifest)
+
+        context.admitted_manifests = tuple(admitted)
+        filtered = PluginCatalog(tuple(m.identifier for m in admitted))
+        with registry._lock:
+            registry._registrations.pop(PluginCatalog, None)
+        registry.register(PluginCatalog, filtered)
+        logger.info(
+            "plugins.security.completed",
+            extra={"context": {"admitted": len(admitted), "total": len(context.manifests)}},
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class PluginRuntimePool:
+    """Ordered collection of activated plugin runtimes for registry storage."""
+
+    runtimes: tuple[PluginRuntime, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class PluginActivationStage:
+    """Imports, instantiates, wires, and starts admitted plugins."""
+
+    name: str = "plugin_activation"
+    phase: StartupPhase = StartupPhase.FINALIZE
+
+    def execute(self, context: BootstrapContext) -> None:
+        import importlib
+        import sys
+
+        from core.events import Event
+        from sdk.config import FilePluginConfigStorage
+        from sdk.context import PluginContextBuilder
+        from sdk.manifest import PluginMetadata
+        from sdk.plugin import Plugin, PluginRuntime
+
+        settings = _require(context.settings, "settings")
+        environment = _require(context.environment, "environment")
+        registry = _require(context.registry, "registry")
+        events = _require(context.events, "events")
+        logger = _require(context.logger, "logger")
+
+        plugin_dir = environment.root / settings.plugin_directory
+        admitted_ids = {m.identifier for m in context.admitted_manifests}
+        runtimes: list[PluginRuntime] = []
+
+        parent = str(plugin_dir)
+        added_to_path = parent not in sys.path
+        if added_to_path:
+            sys.path.insert(0, parent)
+        try:
+            for manifest in context.admitted_manifests:
+                identifier = manifest.identifier
+                try:
+                    PluginActivating(identifier).publish(events)
+
+                    module_path = plugin_dir / identifier
+                    if not module_path.is_dir():
+                        raise ImportError(f"Plugin directory not found: {module_path}")
+
+                    module = importlib.import_module(identifier)
+
+                    plugin_class: type[Plugin] | None = None
+                    for attr_name in dir(module):
+                        attr = getattr(module, attr_name)
+                        if (
+                            isinstance(attr, type)
+                            and issubclass(attr, Plugin)
+                            and attr is not Plugin
+                            and not getattr(attr, "__abstractmethods__", None)
+                        ):
+                            plugin_class = attr
+                            break
+
+                    if plugin_class is None:
+                        raise ImportError(f"No concrete Plugin subclass found in {identifier!r}")
+
+                    plugin = plugin_class()
+                    metadata: PluginMetadata = plugin.metadata()
+
+                    for dep in metadata.dependencies:
+                        if dep.identifier not in admitted_ids:
+                            raise ValueError(
+                                f"Unresolved dependency: {dep.identifier!r} "
+                                f"required by {identifier!r}"
+                            )
+
+                    config_root = plugin_dir / identifier
+                    resources_root = plugin_dir / identifier / "resources"
+                    resources_root.mkdir(parents=True, exist_ok=True)
+
+                    plugin_context = (
+                        PluginContextBuilder(metadata)
+                        .with_event_bus(events, event_type=Event)
+                        .with_service(logging.Logger, logger)
+                        .with_config_storage(FilePluginConfigStorage(config_root))
+                        .with_resources_root(resources_root)
+                        .with_logger(logger)
+                        .with_application_version(settings.version)
+                        .build()
+                    )
+
+                    runtime = PluginRuntime(plugin)
+                    runtime.initialize(plugin_context)
+                    runtime.start()
+
+                    runtimes.append(runtime)
+
+                    PluginActivated(identifier, metadata.version).publish(events)
+
+                    logger.info(
+                        "plugins.activation.started",
+                        extra={"context": {"identifier": identifier, "version": metadata.version}},
+                    )
+                except Exception as error:
+                    PluginFailed(identifier, str(error)).publish(events)
+                    logger.error(
+                        "plugins.activation.failed",
+                        extra={"context": {"identifier": identifier, "error": str(error)}},
+                    )
+        finally:
+            if added_to_path:
+                try:
+                    sys.path.remove(parent)
+                except ValueError:
+                    pass
+
+        context.plugin_runtimes = tuple(runtimes)
+        pool = PluginRuntimePool(tuple(runtimes))
+        registry.register(PluginRuntimePool, pool)
+        logger.info(
+            "plugins.activation.completed",
+            extra={"context": {"activated": len(runtimes), "total": len(context.admitted_manifests)}},
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class ResourceStage:
     """Creates and registers the resource manager."""
 
@@ -336,7 +566,9 @@ def default_stages() -> tuple[BootstrapStage, ...]:
         ThemeStage(),
         SchedulerStage(),
         PluginDiscoveryStage(),
+        PluginSecurityStage(),
         ResourceStage(),
+        PluginActivationStage(),
         DeveloperToolsStage(),
         DependencyInjectionStage(),
     )

@@ -58,7 +58,13 @@ from app.security.models import (
     ThreatSeverity,
 )
 from app.security.permission_manager import PermissionManager
-from app.security.plugin_security import PluginSecurity, PluginVerdict
+from app.security.plugin_security import (
+    IntegrityEvidenceLevel,
+    IntegrityPolicy,
+    IntegrityResult,
+    PluginSecurity,
+    PluginVerdict,
+)
 from app.security.secret_vault import SecretVault
 from app.security.security_manager import SecurityBootstrapStage, SecurityManager
 from app.security.threat_detector import ThreatDetector
@@ -82,6 +88,9 @@ __all__ = [
     "EncryptionError",
     "EncryptionService",
     "Identity",
+    "IntegrityEvidenceLevel",
+    "IntegrityPolicy",
+    "IntegrityResult",
     "IdentityManager",
     "Permission",
     "PermissionDenied",
