@@ -1,9 +1,11 @@
-"""Tests for API Version Gate (WP-03), Integrity Validation (WP-04), and Permission Model (WP-05).
+"""Tests for API Version Gate (WP-03), Integrity Validation (WP-04), Permission Model (WP-05),
+and Activation Validation (WP-07).
 
-SP-03/SP-04 test suite covering:
+SP-03/SP-04/SP-06 test suite covering:
 - AC-3: API Version Gate — manifest-level check before code import
 - AC-9: Integrity Validation — policy-driven, trust determination, SignatureStatus
 - AC-4: Permission Model — default-deny, admission validation, runtime enforcement
+- AC-6: Activation Validation — consolidated pre-import validation, accept/reject, diagnostics
 """
 
 from __future__ import annotations
@@ -18,7 +20,13 @@ from pathlib import Path
 
 from plugins.loader import PluginManifest
 
-from app.bootstrap import BootstrapContext, PluginSecurityStage
+from app.bootstrap import (
+    BootstrapContext,
+    PluginSecurityStage,
+    RejectionCode,
+    ValidationDiagnostic,
+    _validate_for_activation,
+)
 from app.security.models import PluginTrustLevel
 from app.security.plugin_security import (
     IntegrityEvidenceLevel,
@@ -485,6 +493,224 @@ class TestPermissionEnforcementDenied(_TestBase):
 
         self.assertFalse(result.admitted)
         self.assertIn("events.publish", result.denied)
+
+
+class _ActivationStageTestBase(_TestBase):
+    """Helpers for tests that exercise PluginActivationStage."""
+
+    def _make_activation_context(self) -> BootstrapContext:
+        import tempfile
+        from config.settings import ApplicationSettings
+        from core.environment import Environment
+        from styles.theme import ThemeMode
+
+        context = self._make_context()
+        tmp = Path(tempfile.mkdtemp())
+        context.environment = Environment(
+            root=tmp, os_name="test", python_version="3.13",
+        )
+        context.settings = ApplicationSettings(
+            name="test",
+            version="0.8.0",
+            log_level="WARNING",
+            theme_mode=ThemeMode.DARK,
+            database_path="data/test.db",
+            plugin_directory="plugins",
+        )
+        (tmp / "plugins").mkdir(exist_ok=True)
+        return context
+
+
+class TestActivationValidationAccept(_TestBase):
+    """AC-6: Valid plugin passes consolidated pre-import validation → Accept."""
+
+    def test_activation_validation_accept(self) -> None:
+        """Valid manifest with compatible API version and resolved deps → accepted."""
+        manifest = self._make_manifest("valid-plugin", api_version=Version(1, 0, 0))
+        admitted_ids = frozenset({"valid-plugin"})
+        diagnostic = _validate_for_activation(manifest, admitted_ids, "1.0.0")
+
+        self.assertIsInstance(diagnostic, ValidationDiagnostic)
+        self.assertTrue(diagnostic.accepted)
+        self.assertTrue(diagnostic.schema_valid)
+        self.assertTrue(diagnostic.api_version_valid)
+        self.assertTrue(diagnostic.permissions_valid)
+        self.assertTrue(diagnostic.dependencies_valid)
+        self.assertIsNone(diagnostic.rejection_code)
+        self.assertEqual(diagnostic.reason, "")
+
+    def test_activation_validation_accept_no_api_version(self) -> None:
+        """V1 manifest without api_version → accepted (backwards compatible)."""
+        manifest = self._make_manifest("v1-plugin")
+        admitted_ids = frozenset({"v1-plugin"})
+        diagnostic = _validate_for_activation(manifest, admitted_ids, "1.0.0")
+
+        self.assertTrue(diagnostic.accepted)
+        self.assertTrue(diagnostic.api_version_valid)
+
+    def test_activation_validation_accept_with_resolved_deps(self) -> None:
+        """Manifest with dependencies all present in admitted set → accepted."""
+        manifest = PluginManifest(
+            identifier="dep-plugin",
+            version=Version(1, 0, 0),
+            required_application_version=Version(0, 3, 0),
+            dependencies=({"id": "base-plugin", "version": ">=1.0.0"},),
+        )
+        admitted_ids = frozenset({"dep-plugin", "base-plugin"})
+        diagnostic = _validate_for_activation(manifest, admitted_ids, "1.0.0")
+
+        self.assertTrue(diagnostic.accepted)
+        self.assertTrue(diagnostic.dependencies_valid)
+
+    def test_activation_validation_diagnostic_is_immutable(self) -> None:
+        """ValidationDiagnostic is a frozen dataclass."""
+        manifest = self._make_manifest("frozen-test")
+        admitted_ids = frozenset({"frozen-test"})
+        diagnostic = _validate_for_activation(manifest, admitted_ids, "1.0.0")
+
+        with self.assertRaises(AttributeError):
+            diagnostic.accepted = False  # type: ignore[misc]
+
+
+class TestActivationValidationReject(_ActivationStageTestBase):
+    """AC-6: Invalid plugin fails consolidated pre-import validation → Reject with diagnostics."""
+
+    def test_activation_validation_reject_incompatible_api(self) -> None:
+        """Incompatible API version → reject with structured code and reason."""
+        manifest = self._make_manifest("bad-api", api_version=Version(2, 0, 0))
+        admitted_ids = frozenset({"bad-api"})
+        diagnostic = _validate_for_activation(manifest, admitted_ids, "1.0.0")
+
+        self.assertFalse(diagnostic.accepted)
+        self.assertFalse(diagnostic.api_version_valid)
+        self.assertEqual(diagnostic.rejection_code, RejectionCode.API_VERSION_INCOMPATIBLE)
+        self.assertIn("2.0.0", diagnostic.reason)
+        self.assertIn("1.0.0", diagnostic.reason)
+
+    def test_activation_validation_reject_missing_dependency(self) -> None:
+        """Dependency not in admitted set → reject with structured code."""
+        manifest = PluginManifest(
+            identifier="needs-dep",
+            version=Version(1, 0, 0),
+            required_application_version=Version(0, 3, 0),
+            dependencies=({"id": "missing-plugin", "version": ">=1.0.0"},),
+        )
+        admitted_ids = frozenset({"needs-dep"})
+        diagnostic = _validate_for_activation(manifest, admitted_ids, "1.0.0")
+
+        self.assertFalse(diagnostic.accepted)
+        self.assertFalse(diagnostic.dependencies_valid)
+        self.assertEqual(diagnostic.rejection_code, RejectionCode.DEPENDENCY_MISSING)
+        self.assertIn("missing-plugin", diagnostic.reason)
+
+    def test_activation_validation_reject_emits_event(self) -> None:
+        """Rejected plugin emits PluginRejected event through centralized handler."""
+        context = self._make_activation_context()
+        manifest = self._make_manifest("event-reject", api_version=Version(3, 0, 0))
+        context.admitted_manifests = (manifest,)
+
+        rejected_events: list[dict[str, str]] = []
+        context.events.subscribe(
+            "security.plugin.rejected",
+            lambda e: rejected_events.append(e.payload),
+        )
+
+        from app.bootstrap import PluginActivationStage
+
+        stage = PluginActivationStage()
+        stage.execute(context)
+
+        self.assertEqual(len(rejected_events), 1)
+        self.assertEqual(rejected_events[0]["identifier"], "event-reject")
+        self.assertIn("3.0.0", rejected_events[0]["reason"])
+
+    def test_activation_validation_reject_does_not_crash(self) -> None:
+        """Rejected plugin does not abort the application — stage completes normally."""
+        context = self._make_activation_context()
+        manifest = self._make_manifest("crash-test", api_version=Version(99, 0, 0))
+        context.admitted_manifests = (manifest,)
+
+        from app.bootstrap import PluginActivationStage
+
+        stage = PluginActivationStage()
+        stage.execute(context)
+
+        self.assertEqual(len(context.plugin_runtimes), 0)
+
+    def test_activation_validation_rejection_code_values(self) -> None:
+        """RejectionCode provides stable string values for all pipeline rejection reasons."""
+        self.assertEqual(RejectionCode.MANIFEST_INVALID.value, "manifest_invalid")
+        self.assertEqual(RejectionCode.API_VERSION_INCOMPATIBLE.value, "api_version_incompatible")
+        self.assertEqual(RejectionCode.PERMISSION_DENIED.value, "permission_denied")
+        self.assertEqual(RejectionCode.DEPENDENCY_MISSING.value, "dependency_missing")
+        self.assertEqual(RejectionCode.INTEGRITY_FAILED.value, "integrity_failed")
+        self.assertGreaterEqual(len(RejectionCode), 8)
+
+
+class TestMixedValidInvalidPlugins(_ActivationStageTestBase):
+    """AC-6 Integration: Valid plugins accepted, invalid rejected, application continues."""
+
+    def test_mixed_valid_invalid_plugins(self) -> None:
+        """Mixed set: valid plugin passes validation, invalid is rejected, stage completes."""
+        context = self._make_activation_context()
+        valid = self._make_manifest("good-plugin", api_version=Version(1, 0, 0))
+        invalid = self._make_manifest("bad-plugin", api_version=Version(5, 0, 0))
+        context.admitted_manifests = (valid, invalid)
+
+        rejected_ids: list[str] = []
+        context.events.subscribe(
+            "security.plugin.rejected",
+            lambda e: rejected_ids.append(e.payload["identifier"]),
+        )
+        failed_ids: list[str] = []
+        context.events.subscribe(
+            "application.plugin.failed",
+            lambda e: failed_ids.append(e.payload["identifier"]),
+        )
+
+        from app.bootstrap import PluginActivationStage
+
+        stage = PluginActivationStage()
+        stage.execute(context)
+
+        self.assertIn("bad-plugin", rejected_ids)
+        self.assertNotIn("good-plugin", rejected_ids)
+        # good-plugin will fail at import (no actual code), but it passes validation
+        self.assertIn("good-plugin", failed_ids)
+
+    def test_mixed_all_valid_through_full_pipeline(self) -> None:
+        """All-valid set through SecurityStage → all admitted, none rejected at validation."""
+        context = self._make_context()
+        m1 = self._make_manifest("plugin-a", api_version=Version(1, 0, 0))
+        m2 = self._make_manifest("plugin-b", api_version=Version(1, 0, 0))
+        context.manifests = (m1, m2)
+
+        stage = PluginSecurityStage()
+        stage.execute(context)
+
+        self.assertEqual(len(context.admitted_manifests), 2)
+        admitted_ids = {m.identifier for m in context.admitted_manifests}
+        self.assertEqual(admitted_ids, {"plugin-a", "plugin-b"})
+
+    def test_mixed_pipeline_valid_and_incompatible(self) -> None:
+        """Full pipeline: compatible plugin admitted, incompatible rejected at SecurityStage."""
+        context = self._make_context()
+        good = self._make_manifest("compat", api_version=Version(1, 0, 0))
+        bad = self._make_manifest("incompat", api_version=Version(2, 0, 0))
+        context.manifests = (good, bad)
+
+        rejected: list[str] = []
+        context.events.subscribe(
+            "security.plugin.rejected",
+            lambda e: rejected.append(e.payload["identifier"]),
+        )
+
+        stage = PluginSecurityStage()
+        stage.execute(context)
+
+        self.assertEqual(len(context.admitted_manifests), 1)
+        self.assertEqual(context.admitted_manifests[0].identifier, "compat")
+        self.assertIn("incompat", rejected)
 
 
 if __name__ == "__main__":

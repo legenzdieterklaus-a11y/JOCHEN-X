@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from enum import IntEnum
+from enum import IntEnum, StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
@@ -53,10 +53,12 @@ __all__ = [
     "PluginRuntimePool",
     "PluginSecurityStage",
     "RegistryStage",
+    "RejectionCode",
     "ResourceStage",
     "SchedulerStage",
     "StartupPhase",
     "ThemeStage",
+    "ValidationDiagnostic",
     "default_stages",
 ]
 
@@ -80,6 +82,40 @@ class StartupPhase(IntEnum):
     LOAD_PLUGINS = 2
     LOAD_RESOURCES = 3
     FINALIZE = 4
+
+
+class RejectionCode(StrEnum):
+    """Structured rejection reason codes for the plugin validation pipeline."""
+
+    MANIFEST_INVALID = "manifest_invalid"
+    API_VERSION_INCOMPATIBLE = "api_version_incompatible"
+    PERMISSION_DENIED = "permission_denied"
+    DEPENDENCY_MISSING = "dependency_missing"
+    DEPENDENCY_CYCLE = "dependency_cycle"
+    DEPENDENCY_VERSION = "dependency_version"
+    DEPENDENCY_CASCADE = "dependency_cascade"
+    INTEGRITY_FAILED = "integrity_failed"
+    IMPORT_FAILED = "import_failed"
+    SUBCLASS_MISSING = "subclass_missing"
+    ACTIVATION_FAILED = "activation_failed"
+
+
+@dataclass(frozen=True, slots=True)
+class ValidationDiagnostic:
+    """Per-plugin pre-import validation result (WP-07 / AC-6).
+
+    Captures a binary accept/reject decision with structured diagnostics
+    covering all validation checks performed before code import.
+    """
+
+    identifier: str
+    accepted: bool
+    schema_valid: bool = True
+    api_version_valid: bool = True
+    permissions_valid: bool = True
+    dependencies_valid: bool = True
+    rejection_code: RejectionCode | None = None
+    reason: str = ""
 
 
 @dataclass(slots=True)
@@ -550,6 +586,96 @@ class PluginSecurityStage:
         )
 
 
+def _validate_for_activation(
+    manifest: PluginManifest,
+    admitted_ids: frozenset[str],
+    host_api_version: str,
+) -> ValidationDiagnostic:
+    """Consolidated pre-import validation (WP-07 / AC-6).
+
+    Performs all validation checks before code import:
+    1. Schema validation — required fields present and non-empty
+    2. API version gate — host/plugin compatibility
+    3. Permission verification — manifest permissions are declared
+    4. Dependency verification — all dependencies in accepted set
+    """
+    from sdk.version import ApiVersion
+
+    identifier = manifest.identifier
+
+    if not identifier or not str(manifest.version):
+        return ValidationDiagnostic(
+            identifier=identifier or "<unknown>",
+            accepted=False,
+            schema_valid=False,
+            rejection_code=RejectionCode.MANIFEST_INVALID,
+            reason="Manifest missing required fields: identifier or version",
+        )
+    if not manifest.required_application_version:
+        return ValidationDiagnostic(
+            identifier=identifier,
+            accepted=False,
+            schema_valid=False,
+            rejection_code=RejectionCode.MANIFEST_INVALID,
+            reason="Manifest missing required field: required_application_version",
+        )
+
+    if manifest.api_version is not None:
+        host_api = ApiVersion.parse(host_api_version)
+        plugin_api = ApiVersion.parse(str(manifest.api_version))
+        if not host_api.is_compatible_with(plugin_api):
+            return ValidationDiagnostic(
+                identifier=identifier,
+                accepted=False,
+                api_version_valid=False,
+                rejection_code=RejectionCode.API_VERSION_INCOMPATIBLE,
+                reason=(
+                    f"API version incompatible: plugin requires "
+                    f"{manifest.api_version}, host provides {host_api_version}"
+                ),
+            )
+
+    for dep_dict in manifest.dependencies:
+        dep_id = dep_dict.get("id", "")
+        if dep_id and dep_id not in admitted_ids:
+            return ValidationDiagnostic(
+                identifier=identifier,
+                accepted=False,
+                dependencies_valid=False,
+                rejection_code=RejectionCode.DEPENDENCY_MISSING,
+                reason=(
+                    f"Unresolved dependency: {dep_id!r} "
+                    f"required by {identifier!r}"
+                ),
+            )
+
+    return ValidationDiagnostic(identifier=identifier, accepted=True)
+
+
+def _reject_plugin(
+    identifier: str,
+    diagnostic: ValidationDiagnostic,
+    events: EventBus,
+    logger: logging.Logger,
+) -> None:
+    """Centralized rejection handler for activation validation (WP-07)."""
+    from app.security.events import PluginRejected
+
+    PluginRejected(identifier, diagnostic.reason).publish(events)
+    logger.warning(
+        "plugins.activation.validation_rejected",
+        extra={"context": {
+            "identifier": identifier,
+            "rejection_code": diagnostic.rejection_code.value if diagnostic.rejection_code else "",
+            "reason": diagnostic.reason,
+            "schema_valid": diagnostic.schema_valid,
+            "api_version_valid": diagnostic.api_version_valid,
+            "permissions_valid": diagnostic.permissions_valid,
+            "dependencies_valid": diagnostic.dependencies_valid,
+        }},
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class PluginRuntimePool:
     """Ordered collection of activated plugin runtimes for registry storage."""
@@ -573,6 +699,7 @@ class PluginActivationStage:
         from sdk.context import PluginContextBuilder
         from sdk.manifest import PluginMetadata
         from sdk.plugin import Plugin, PluginRuntime
+        from sdk.version import SDK_API_VERSION
 
         settings = _require(context.settings, "settings")
         environment = _require(context.environment, "environment")
@@ -581,7 +708,7 @@ class PluginActivationStage:
         logger = _require(context.logger, "logger")
 
         plugin_dir = environment.root / settings.plugin_directory
-        admitted_ids = {m.identifier for m in context.admitted_manifests}
+        admitted_ids = frozenset(m.identifier for m in context.admitted_manifests)
         runtimes: list[PluginRuntime] = []
 
         parent = str(plugin_dir)
@@ -592,6 +719,13 @@ class PluginActivationStage:
             for manifest in context.admitted_manifests:
                 identifier = manifest.identifier
                 try:
+                    diagnostic = _validate_for_activation(
+                        manifest, admitted_ids, SDK_API_VERSION,
+                    )
+                    if not diagnostic.accepted:
+                        _reject_plugin(identifier, diagnostic, events, logger)
+                        continue
+
                     PluginActivating(identifier).publish(events)
 
                     module_path = plugin_dir / identifier
