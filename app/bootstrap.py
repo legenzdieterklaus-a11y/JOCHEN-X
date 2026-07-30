@@ -290,13 +290,16 @@ class PluginDiscoveryStage:
 
 @dataclass(frozen=True, slots=True)
 class PluginSecurityStage:
-    """Verifies discovered plugin manifests against integrity policy and trust ledger.
+    """Verifies discovered plugin manifests against security policies.
 
-    Executes two validation steps per ADR-005 D5 and the Runtime Pipeline:
-    Step 1 — Integrity Validation: evaluates structural evidence against
-    the integrity policy and determines trust level / signature status.
+    Executes three validation steps per the Runtime Pipeline:
+    Step 1 — Integrity Validation (WP-04 / ADR-005): evaluates structural
+    evidence against the integrity policy and determines trust level.
     Step 2 — API Version Gate (WP-03): checks manifest-level API version
     compatibility BEFORE any plugin code is imported.
+    Step 3 — Permission Authorization (WP-05 / ADR-006): evaluates declared
+    permissions against the host's permission policy. Plugins with denied
+    permissions are rejected before activation.
     """
 
     name: str = "plugin_security"
@@ -352,6 +355,19 @@ class PluginSecurityStage:
                         }},
                     )
                     continue
+
+            # Step 3: Permission Authorization (WP-05 / ADR-006)
+            perm_result = security.validate_permissions(manifest)
+            if not perm_result.admitted:
+                logger.warning(
+                    "plugins.security.permission_rejected",
+                    extra={"context": {
+                        "identifier": identifier,
+                        "reason": perm_result.reason,
+                        "denied": sorted(perm_result.denied),
+                    }},
+                )
+                continue
 
             admitted.append(manifest)
 

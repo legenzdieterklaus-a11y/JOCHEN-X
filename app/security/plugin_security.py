@@ -19,7 +19,7 @@ admission decision.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from threading import RLock
 
@@ -120,6 +120,68 @@ class PluginVerdict:
     allowed: bool
 
 
+@dataclass(frozen=True, slots=True)
+class PermissionPolicy:
+    """Configuration-driven permission policy (ADR-006 D5).
+
+    Determines which capabilities the host grants to each plugin.
+    Default-deny: an empty policy grants nothing (ADR-006 D1).
+
+    Attributes:
+        wildcard_grants: Baseline capability set granted to all plugins.
+        plugin_grants: Per-plugin grants mapping identifiers to capability sets.
+    """
+
+    wildcard_grants: frozenset[str] = field(default_factory=frozenset)
+    plugin_grants: dict[str, frozenset[str]] = field(default_factory=dict)
+
+    @classmethod
+    def from_config(cls, config: dict[str, object]) -> PermissionPolicy:
+        """Construct a policy from a configuration mapping.
+
+        Unknown keys are ignored. Missing keys produce a default-deny policy.
+        """
+        wildcard_raw = config.get("wildcard", ())
+        wildcard: frozenset[str]
+        if isinstance(wildcard_raw, (list, tuple)):
+            wildcard = frozenset(str(c) for c in wildcard_raw)
+        else:
+            wildcard = frozenset()
+
+        grants_raw = config.get("grants", {})
+        plugin_grants: dict[str, frozenset[str]] = {}
+        if isinstance(grants_raw, dict):
+            for pid, perms in grants_raw.items():
+                if isinstance(perms, (list, tuple)):
+                    plugin_grants[str(pid)] = frozenset(str(p) for p in perms)
+
+        return cls(wildcard_grants=wildcard, plugin_grants=plugin_grants)
+
+    def granted_for(self, plugin_id: str) -> frozenset[str]:
+        """Return the set of capabilities granted to a specific plugin."""
+        specific = self.plugin_grants.get(plugin_id, frozenset())
+        return specific | self.wildcard_grants
+
+
+@dataclass(frozen=True, slots=True)
+class PermissionResult:
+    """Immutable outcome of permission validation for a single plugin (ADR-006 D3).
+
+    Attributes:
+        identifier: Identifier of the evaluated plugin.
+        granted: Capabilities granted by the host policy.
+        denied: Capabilities declared but denied by the host policy.
+        admitted: Whether the plugin passed permission validation.
+        reason: Human-readable reason when rejected; empty when admitted.
+    """
+
+    identifier: str
+    granted: frozenset[str]
+    denied: frozenset[str]
+    admitted: bool
+    reason: str = ""
+
+
 class PluginSecurity:
     """Thread-safe plugin trust ledger and validator."""
 
@@ -129,6 +191,7 @@ class PluginSecurity:
         *,
         logger: logging.Logger | None = None,
         integrity_policy: IntegrityPolicy | None = None,
+        permission_policy: PermissionPolicy | None = None,
     ) -> None:
         """Create an empty plugin trust ledger.
 
@@ -137,18 +200,27 @@ class PluginSecurity:
             logger: Optional logger for diagnostics.
             integrity_policy: Integrity policy for validation. Defaults to
                 structural validation when not provided.
+            permission_policy: Permission policy for validation. Defaults to
+                default-deny when not provided (ADR-006 D1).
         """
         self._events = events
         self._logger = logger or logging.getLogger(_LOGGER_NAME)
         self._trust: dict[str, PluginTrustLevel] = {}
         self._integrity_results: dict[str, IntegrityResult] = {}
+        self._permission_results: dict[str, PermissionResult] = {}
         self._integrity_policy = integrity_policy or IntegrityPolicy()
+        self._permission_policy = permission_policy or PermissionPolicy()
         self._lock = RLock()
 
     @property
     def integrity_policy(self) -> IntegrityPolicy:
         """Return the active integrity policy."""
         return self._integrity_policy
+
+    @property
+    def permission_policy(self) -> PermissionPolicy:
+        """Return the active permission policy."""
+        return self._permission_policy
 
     def approve(self, identifier: str) -> None:
         """Mark ``identifier`` as fully trusted."""
@@ -316,6 +388,93 @@ class PluginSecurity:
             )
 
         return result
+
+    def validate_permissions(
+        self,
+        manifest: PluginManifest,
+        policy: PermissionPolicy | None = None,
+    ) -> PermissionResult:
+        """Evaluate declared permissions against the host's permission policy.
+
+        Permission validation occurs at the admission boundary — after integrity
+        validation, before activation (ADR-006 D3). Each declared permission is
+        evaluated against the policy. If any declared permission is denied, the
+        plugin is rejected entirely (ADR-006 D1).
+
+        Args:
+            manifest: A manifest produced by :class:`plugins.loader.PluginLoader`.
+            policy: Override policy; defaults to the instance's stored policy.
+
+        Returns:
+            The :class:`PermissionResult` for the manifest's plugin.
+        """
+        identifier = manifest.identifier
+        declared = frozenset(manifest.permissions)
+        effective_policy = policy or self._permission_policy
+
+        if not declared:
+            result = PermissionResult(
+                identifier=identifier,
+                granted=frozenset(),
+                denied=frozenset(),
+                admitted=True,
+            )
+            with self._lock:
+                self._permission_results[identifier] = result
+            return result
+
+        policy_grants = effective_policy.granted_for(identifier)
+        granted = declared & policy_grants
+        denied = declared - policy_grants
+
+        if denied:
+            reason = (
+                f"Permission denied: {', '.join(sorted(denied))} "
+                f"not granted by host policy"
+            )
+            self._logger.warning(
+                "security.permission.denied",
+                extra={"context": {
+                    "identifier": identifier,
+                    "denied": sorted(denied),
+                    "granted": sorted(granted),
+                }},
+            )
+            PluginRejected(identifier, reason).publish(self._events)
+            result = PermissionResult(
+                identifier=identifier,
+                granted=granted,
+                denied=denied,
+                admitted=False,
+                reason=reason,
+            )
+            with self._lock:
+                self._permission_results[identifier] = result
+            return result
+
+        for perm in sorted(granted):
+            self._logger.info(
+                "security.permission.granted",
+                extra={"context": {
+                    "identifier": identifier,
+                    "permission": perm,
+                }},
+            )
+
+        result = PermissionResult(
+            identifier=identifier,
+            granted=granted,
+            denied=frozenset(),
+            admitted=True,
+        )
+        with self._lock:
+            self._permission_results[identifier] = result
+        return result
+
+    def permission_result(self, identifier: str) -> PermissionResult | None:
+        """Return the permission validation result for ``identifier``, if any."""
+        with self._lock:
+            return self._permission_results.get(identifier)
 
     def verify(self, identifier: str, version: str) -> PluginVerdict:
         """Evaluate whether a plugin may be admitted and emit the verdict.
