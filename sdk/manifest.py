@@ -64,6 +64,54 @@ class PluginPermission(StrEnum):
     SERVICES = "services"
 
 
+class Capability(StrEnum):
+    """Stable capability identifiers for the plugin permission system.
+
+    Capabilities are the canonical vocabulary for manifest-level permission
+    declarations (ADR-006). Plugins reference these string constants in
+    their manifests; the host evaluates them against its permission policy
+    at admission time. Capabilities that are not granted are denied
+    (default-deny, ADR-006 D1).
+    """
+
+    FILESYSTEM = "filesystem"
+    NETWORK = "network"
+    CLIPBOARD = "clipboard"
+    NOTIFICATIONS = "notifications"
+    BROWSER = "browser"
+    SETTINGS = "settings"
+    TERMINAL = "terminal"
+    AI = "ai"
+    CAMERA = "camera"
+    AUDIO = "audio"
+
+
+CAPABILITY_PERMISSION_MAP: dict[Capability, PluginPermission] = {
+    Capability.FILESYSTEM: PluginPermission.FILESYSTEM,
+    Capability.NETWORK: PluginPermission.NETWORK,
+    Capability.SETTINGS: PluginPermission.CONFIGURATION,
+}
+"""Mapping from capability identifiers to existing PluginPermission values.
+
+Only capabilities with a direct semantic correspondence are mapped.
+Capabilities without a mapping (e.g. CLIPBOARD, CAMERA) represent
+contract vocabulary that does not yet have a host-side permission
+equivalent.
+"""
+
+
+def is_capability_granted(
+    capability: Capability,
+    granted: frozenset[Capability],
+) -> bool:
+    """Check whether a capability is granted under default-deny semantics.
+
+    Returns ``True`` only if *capability* is explicitly present in the
+    *granted* set. All capabilities not in the set are denied (ADR-006 D1).
+    """
+    return capability in granted
+
+
 class SignatureStatus(StrEnum):
     """Integrity classification assigned to a plugin at admission time.
 
@@ -374,11 +422,14 @@ class PluginMetadata:
 
 
 __all__ = [
+    "CAPABILITY_PERMISSION_MAP",
+    "Capability",
     "PluginCategory",
     "PluginDependency",
     "PluginMetadata",
     "PluginPermission",
     "SignatureStatus",
+    "is_capability_granted",
     "validate_identifier",
     "validate_semver",
 ]
