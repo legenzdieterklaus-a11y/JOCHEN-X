@@ -226,6 +226,7 @@ class PluginMetadata:
     dependencies: tuple[PluginDependency, ...] = ()
     minimum_application_version: str = "0.7.0"
     signature_status: SignatureStatus = SignatureStatus.UNVERIFIED
+    entry_point: str = ""
 
     def __post_init__(self) -> None:
         """Validate every field and raise :class:`PluginManifestError` on error."""
@@ -263,7 +264,7 @@ class PluginMetadata:
         Returns:
             A dictionary that mirrors the manifest field names and values.
         """
-        return {
+        result = {
             "identifier": self.identifier,
             "name": self.name,
             "version": self.version,
@@ -279,6 +280,9 @@ class PluginMetadata:
             "minimum_application_version": self.minimum_application_version,
             "signature_status": self.signature_status.value,
         }
+        if self.entry_point:
+            result["entry_point"] = self.entry_point
+        return result
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> PluginMetadata:
@@ -356,6 +360,8 @@ class PluginMetadata:
                 f"Invalid signature_status: {signature_raw!r}"
             ) from error
 
+        entry_point = str(data.get("entry_point", ""))
+
         return cls(
             identifier=identifier,
             name=name,
@@ -368,6 +374,7 @@ class PluginMetadata:
             dependencies=tuple(dependencies),
             minimum_application_version=minimum_application_version,
             signature_status=signature_status,
+            entry_point=entry_point,
         )
 
     @classmethod
@@ -375,25 +382,29 @@ class PluginMetadata:
         cls,
         loader_manifest: Any,
         *,
-        name: str,
-        author: str,
-        description: str,
-        api_version: str,
+        name: str = "",
+        author: str = "",
+        description: str = "",
+        api_version: str = "",
         category: PluginCategory = PluginCategory.GENERAL,
     ) -> PluginMetadata:
         """Adapt a foundation ``plugins.loader.PluginManifest`` to SDK metadata.
 
-        The adapter reads only the public attributes documented by the
-        foundation's manifest contract (identifier, version,
-        required_application_version) and combines them with the additional,
-        SDK-only descriptive fields supplied here.
+        Reads the public attributes documented by the foundation's manifest
+        contract and combines them with either the v2 manifest fields
+        (metadata, permissions, dependencies, entry_point) or the explicit
+        keyword arguments supplied by the caller.
+
+        Explicit keyword arguments take precedence over manifest values when
+        both are available.  When neither a keyword argument nor a manifest
+        value is present, safe defaults are used.
 
         Args:
             loader_manifest: A ``plugins.loader.PluginManifest`` instance.
-            name: Human-readable plugin name.
-            author: Author or organisation name.
-            description: Human-readable one-line description.
-            api_version: SDK API version the plugin was built against.
+            name: Human-readable plugin name (overrides manifest metadata).
+            author: Author or organisation name (overrides manifest metadata).
+            description: One-line description (overrides manifest metadata).
+            api_version: SDK API version (overrides manifest api_version).
             category: Primary plugin category.
 
         Returns:
@@ -409,15 +420,79 @@ class PluginMetadata:
             raise PluginManifestError(
                 "loader_manifest is missing required public attributes"
             )
+
+        manifest_metadata: dict[str, str] = getattr(
+            loader_manifest, "metadata", {}
+        )
+        manifest_api_version = getattr(loader_manifest, "api_version", None)
+        manifest_category = getattr(loader_manifest, "category", "general")
+        manifest_entry_point = getattr(loader_manifest, "entry_point", "")
+        manifest_permissions: tuple[str, ...] = getattr(
+            loader_manifest, "permissions", ()
+        )
+        manifest_dependencies: tuple[dict[str, str], ...] = getattr(
+            loader_manifest, "dependencies", ()
+        )
+
+        resolved_name = name or manifest_metadata.get("display_name", "") or str(identifier)
+        resolved_author = author or manifest_metadata.get("author", "") or "Unknown"
+        resolved_description = (
+            description
+            or manifest_metadata.get("description", "")
+            or "No description"
+        )
+
+        resolved_api_version = api_version
+        if not resolved_api_version and manifest_api_version is not None:
+            resolved_api_version = str(manifest_api_version)
+        if not resolved_api_version:
+            from sdk.version import SDK_API_VERSION
+
+            resolved_api_version = SDK_API_VERSION
+
+        resolved_category = category
+        if category == PluginCategory.GENERAL and manifest_category != "general":
+            try:
+                resolved_category = PluginCategory(manifest_category)
+            except ValueError:
+                pass
+
+        permissions: frozenset[PluginPermission] = frozenset()
+        if manifest_permissions:
+            perm_set: set[PluginPermission] = set()
+            for cap_str in manifest_permissions:
+                try:
+                    perm_set.add(PluginPermission(cap_str))
+                except ValueError:
+                    pass
+            permissions = frozenset(perm_set)
+
+        deps: list[PluginDependency] = []
+        for dep_dict in manifest_dependencies:
+            if isinstance(dep_dict, dict):
+                dep_id = dep_dict.get("id", "")
+                dep_ver = dep_dict.get("version", "")
+                if dep_ver.startswith(">="):
+                    dep_ver = dep_ver[2:]
+                if dep_id and dep_ver:
+                    deps.append(
+                        PluginDependency(
+                            identifier=dep_id, minimum_version=dep_ver
+                        )
+                    )
+
         return cls(
             identifier=str(identifier),
-            name=name,
+            name=resolved_name,
             version=str(version),
-            api_version=api_version,
-            author=author,
-            description=description,
-            category=category,
+            api_version=resolved_api_version,
+            author=resolved_author,
+            description=resolved_description,
+            category=resolved_category,
+            permissions=permissions,
+            dependencies=tuple(deps),
             minimum_application_version=str(required),
+            entry_point=manifest_entry_point,
         )
 
 
