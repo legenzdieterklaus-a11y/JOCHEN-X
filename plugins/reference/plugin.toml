@@ -1,0 +1,18 @@
+[plugin]
+id = "reference"
+version = "1.0.0"
+requires_application = "0.8.0"
+api_version = "1.0.0"
+category = "developer"
+entry_point = "reference"
+
+[plugin.metadata]
+display_name = "Golden Reference Plugin"
+author = "JOCHEN X Team"
+description = "Governance artifact for end-to-end plugin contract validation"
+
+[plugin.permissions]
+capabilities = ["events.publish", "events.subscribe"]
+
+[plugin.dependencies]
+requires = []

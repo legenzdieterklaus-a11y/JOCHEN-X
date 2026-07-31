@@ -14,6 +14,7 @@ import logging
 from dataclasses import dataclass, field
 from enum import IntEnum, StrEnum
 from pathlib import Path
+from time import perf_counter
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
 if TYPE_CHECKING:
@@ -24,6 +25,7 @@ from core.environment import Environment
 from core.events import EventBus
 from core.exceptions import JochenXError
 from core.logging import configure_logging
+from core.observability import ActivationFailure, Metrics
 from core.registry import ServiceRegistry
 from core.scheduler import TaskScheduler
 from core.version import Version, VersionManager
@@ -141,6 +143,8 @@ class BootstrapContext:
     resources: ResourceManager | None = None
     scheduler: TaskScheduler | None = None
     service_provider: ServiceProvider | None = None
+    metrics: Metrics | None = None
+    activation_failures: list[ActivationFailure] = field(default_factory=list)
 
 
 def _require(value: T | None, name: str) -> T:
@@ -254,10 +258,13 @@ class RegistryStage:
         registry.register(EventBus, events)
         registry.register(VersionManager, versions)
         registry.register(DisposableRegistry, disposables)
+        metrics = Metrics()
+        registry.register(Metrics, metrics)
         context.registry = registry
         context.disposables = disposables
         context.events = events
         context.versions = versions
+        context.metrics = metrics
 
 
 @dataclass(frozen=True, slots=True)
@@ -526,54 +533,67 @@ class PluginSecurityStage:
 
         for manifest in context.manifests:
             identifier = manifest.identifier
-
-            integrity = security.validate_integrity(manifest)
-            if not integrity.admitted:
-                logger.warning(
-                    "plugins.security.integrity_rejected",
-                    extra={"context": {
-                        "identifier": identifier,
-                        "reason": integrity.reason,
-                        "trust": integrity.trust.value,
-                    }},
-                )
-                continue
-
-            if manifest.api_version is not None:
-                plugin_api = ApiVersion.parse(str(manifest.api_version))
-                if not host_api.is_compatible_with(plugin_api):
-                    reason = (
-                        f"API version incompatible: plugin requires "
-                        f"{manifest.api_version}, host provides {SDK_API_VERSION}"
-                    )
-                    PluginRejected(identifier, reason).publish(events)
+            _validation_start = perf_counter()
+            try:
+                integrity = security.validate_integrity(manifest)
+                if not integrity.admitted:
                     logger.warning(
-                        "plugins.security.api_version_rejected",
+                        "plugins.security.integrity_rejected",
                         extra={"context": {
                             "identifier": identifier,
-                            "plugin_api": str(manifest.api_version),
-                            "host_api": SDK_API_VERSION,
+                            "reason": integrity.reason,
+                            "trust": integrity.trust.value,
                         }},
                     )
                     continue
 
-            # Step 3: Permission Authorization (WP-05 / ADR-006)
-            perm_result = security.validate_permissions(manifest)
-            if not perm_result.admitted:
-                logger.warning(
-                    "plugins.security.permission_rejected",
-                    extra={"context": {
-                        "identifier": identifier,
-                        "reason": perm_result.reason,
-                        "denied": sorted(perm_result.denied),
-                    }},
-                )
-                continue
+                if manifest.api_version is not None:
+                    plugin_api = ApiVersion.parse(str(manifest.api_version))
+                    if not host_api.is_compatible_with(plugin_api):
+                        reason = (
+                            f"API version incompatible: plugin requires "
+                            f"{manifest.api_version}, host provides {SDK_API_VERSION}"
+                        )
+                        PluginRejected(identifier, reason).publish(events)
+                        logger.warning(
+                            "plugins.security.api_version_rejected",
+                            extra={"context": {
+                                "identifier": identifier,
+                                "plugin_api": str(manifest.api_version),
+                                "host_api": SDK_API_VERSION,
+                            }},
+                        )
+                        continue
 
-            admitted.append(manifest)
+                # Step 3: Permission Authorization (WP-05 / ADR-006)
+                perm_result = security.validate_permissions(manifest)
+                if not perm_result.admitted:
+                    logger.warning(
+                        "plugins.security.permission_rejected",
+                        extra={"context": {
+                            "identifier": identifier,
+                            "reason": perm_result.reason,
+                            "denied": sorted(perm_result.denied),
+                        }},
+                    )
+                    continue
+
+                admitted.append(manifest)
+            finally:
+                if context.metrics is not None:
+                    context.metrics.record_duration(
+                        f"plugin.security.validation_ms.{identifier}",
+                        (perf_counter() - _validation_start) * 1000,
+                    )
 
         # Step 4: Dependency Resolution (WP-06 / ADR-007)
+        _dep_start = perf_counter()
         resolved = _resolve_dependencies(tuple(admitted), logger, events)
+        if context.metrics is not None:
+            context.metrics.record_duration(
+                "plugin.dependency.resolution_ms",
+                (perf_counter() - _dep_start) * 1000,
+            )
 
         context.admitted_manifests = resolved
         filtered = PluginCatalog(tuple(m.identifier for m in resolved))
@@ -718,12 +738,21 @@ class PluginActivationStage:
         try:
             for manifest in context.admitted_manifests:
                 identifier = manifest.identifier
+                _activation_start = perf_counter()
                 try:
                     diagnostic = _validate_for_activation(
                         manifest, admitted_ids, SDK_API_VERSION,
                     )
                     if not diagnostic.accepted:
                         _reject_plugin(identifier, diagnostic, events, logger)
+                        context.activation_failures.append(ActivationFailure(
+                            plugin_id=identifier,
+                            phase="validation",
+                            reason=diagnostic.reason,
+                            context={
+                                "rejection_code": diagnostic.rejection_code.value if diagnostic.rejection_code else "",
+                            },
+                        ))
                         continue
 
                     PluginActivating(identifier).publish(events)
@@ -787,11 +816,23 @@ class PluginActivationStage:
                         extra={"context": {"identifier": identifier, "version": metadata.version}},
                     )
                 except Exception as error:
+                    context.activation_failures.append(ActivationFailure(
+                        plugin_id=identifier,
+                        phase="activation",
+                        reason=str(error),
+                        context={"error_type": type(error).__name__},
+                    ))
                     PluginFailed(identifier, str(error)).publish(events)
                     logger.error(
                         "plugins.activation.failed",
                         extra={"context": {"identifier": identifier, "error": str(error)}},
                     )
+                finally:
+                    if context.metrics is not None:
+                        context.metrics.record_duration(
+                            f"plugin.activation.duration_ms.{identifier}",
+                            (perf_counter() - _activation_start) * 1000,
+                        )
         finally:
             if added_to_path:
                 try:
