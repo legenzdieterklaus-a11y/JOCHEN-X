@@ -21,7 +21,7 @@ from dataclasses import dataclass
 SDK_NAME: str = "jochen-x-sdk"
 """Stable, machine-readable SDK distribution name."""
 
-SDK_VERSION: str = "0.7.1"
+SDK_VERSION: str = "0.9.0"
 """Released SDK package version (semantic version, ``major.minor.patch``)."""
 
 SDK_API_VERSION: str = "1.0.0"

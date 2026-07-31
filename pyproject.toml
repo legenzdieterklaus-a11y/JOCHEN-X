@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jochen-x"
-version = "0.7.0"
+version = "0.9.0"
 description = "JOCHEN X desktop framework"
 requires-python = ">=3.13"
 dependencies = [
