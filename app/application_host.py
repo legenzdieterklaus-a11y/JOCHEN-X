@@ -18,7 +18,7 @@ from pathlib import Path
 from core.events import EventBus
 from core.observability import HealthStatus
 
-from app.bootstrap import BootstrapManager
+from app.bootstrap import BootstrapManager, PluginRuntimePool
 from app.concurrency import WorkerPool
 from app.context import ApplicationContext
 from app.di import DisposableRegistry
@@ -26,6 +26,8 @@ from app.errors import CentralErrorHandler, ErrorCategory, ErrorReport
 from app.shutdown import ShutdownSequence
 from app.startup import StartupSequence
 from app.state_machine import ApplicationState, ApplicationStateMachine
+
+__all__ = ["ApplicationHost"]
 
 _LOGGER_NAME = "jochen_x"
 
@@ -121,6 +123,7 @@ class ApplicationHost:
 
     def shutdown(self, *, exit_code: int = 0, reason: str = "requested") -> None:
         """Perform a graceful, idempotent shutdown."""
+        self._shutdown_plugins()
         disposables = self._disposables or DisposableRegistry(self._logger)
         sequence = ShutdownSequence(
             state_machine=self._state,
@@ -130,6 +133,23 @@ class ApplicationHost:
             logger=self._logger,
         )
         sequence.execute(exit_code=exit_code, reason=reason)
+
+    def _shutdown_plugins(self) -> None:
+        """Stop plugin runtimes in reverse activation order."""
+        if self._context is None:
+            return
+        try:
+            pool = self._context.registry.get(PluginRuntimePool)
+        except LookupError:
+            return
+        for runtime in reversed(pool.runtimes):
+            try:
+                runtime.shutdown()
+            except Exception as error:
+                self._logger.error(
+                    "plugin.shutdown_failed",
+                    extra={"context": {"error": str(error)}},
+                )
 
     def restart(self) -> ApplicationContext:
         """Gracefully shut down and start a fresh application lifecycle."""

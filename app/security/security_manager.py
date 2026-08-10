@@ -199,6 +199,8 @@ class SecurityManager:
         registry.register(AuditLogger, self._audit)
         registry.register(ApiKeyManager, self._api_keys)
         registry.register(BrokerSecurity, self._broker)
+        with registry._lock:
+            registry._registrations.pop(PluginSecurity, None)
         registry.register(PluginSecurity, self._plugins)
         registry.register(BackupManager, self._backups)
         registry.register(ThreatDetector, self._threats)

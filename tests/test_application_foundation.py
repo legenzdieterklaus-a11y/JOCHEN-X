@@ -1126,5 +1126,85 @@ class TrackingPlugin(Plugin):
         self.assertIs(host.state, ApplicationState.SHUTDOWN)
 
 
+class BootstrapFacadeTests(unittest.TestCase):
+    """Verify the bootstrap package facade re-exports all public symbols."""
+
+    _EXPECTED_EXPORTS = (
+        "BootstrapContext",
+        "BootstrapError",
+        "BootstrapManager",
+        "BootstrapStage",
+        "ConfigurationStage",
+        "DatabaseStage",
+        "DependencyInjectionStage",
+        "DeveloperToolsStage",
+        "EnvironmentStage",
+        "LoggingStage",
+        "PluginActivationStage",
+        "PluginDiscoveryStage",
+        "PluginRuntimePool",
+        "PluginSecurityStage",
+        "RegistryStage",
+        "RejectionCode",
+        "ResourceStage",
+        "SchedulerStage",
+        "StartupPhase",
+        "ThemeStage",
+        "ValidationDiagnostic",
+        "default_stages",
+    )
+
+    def test_all_public_exports_available(self) -> None:
+        """Every declared public export is importable from the facade."""
+        import app.bootstrap
+
+        self.assertEqual(len(app.bootstrap.__all__), 22)
+        for name in self._EXPECTED_EXPORTS:
+            with self.subTest(name=name):
+                self.assertIn(name, app.bootstrap.__all__)
+                self.assertTrue(hasattr(app.bootstrap, name))
+
+    def test_facade_contains_no_definitions(self) -> None:
+        """The facade module defines no classes or functions of its own."""
+        import ast
+        import inspect
+
+        source = inspect.getsource(sys.modules["app.bootstrap"])
+        tree = ast.parse(source)
+        for node in ast.iter_child_nodes(tree):
+            self.assertNotIsInstance(
+                node, ast.ClassDef, f"unexpected class: {getattr(node, 'name', '?')}"
+            )
+            self.assertNotIsInstance(
+                node, ast.FunctionDef, f"unexpected function: {getattr(node, 'name', '?')}"
+            )
+
+    def test_default_stages_sequence(self) -> None:
+        """default_stages() returns the exact 13-stage sequence."""
+        stages = default_stages()
+        expected = (
+            "EnvironmentStage",
+            "ConfigurationStage",
+            "LoggingStage",
+            "DatabaseStage",
+            "RegistryStage",
+            "ThemeStage",
+            "SchedulerStage",
+            "PluginDiscoveryStage",
+            "PluginSecurityStage",
+            "ResourceStage",
+            "PluginActivationStage",
+            "DeveloperToolsStage",
+            "DependencyInjectionStage",
+        )
+        self.assertEqual(len(stages), 13)
+        self.assertEqual(tuple(type(s).__name__ for s in stages), expected)
+
+    def test_bootstrap_manager_uses_default_stages(self) -> None:
+        """BootstrapManager default factory produces the canonical sequence."""
+        manager = BootstrapManager()
+        self.assertEqual(manager.stages, default_stages())
+
+
 if __name__ == "__main__":
     unittest.main()

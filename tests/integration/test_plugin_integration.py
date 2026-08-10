@@ -1,402 +1,270 @@
-"""Integration tests for plugin lifecycle, isolation, and observability.
+"""Bootstrap pipeline integration tests (Engineering Specification §9).
 
-Tests verify the plugin infrastructure against real runtime
-components (EventBus, AuditLog, HealthMonitor, StructuredLogger)
-instead of mocks.
+Tests exercise the full plugin pipeline at bootstrap level:
+Discovery → Security → Activation → Shutdown.
+No Qt event loop required.
 """
 
 from __future__ import annotations
 
-import time
+import gc
+import logging
+import sys
+import tempfile
+import unittest
+from pathlib import Path
 
-import pytest
+from core.events import EventBus
+from core.registry import ServiceRegistry
+from core.version import Version, VersionManager
+from config.settings import ApplicationSettings
+from core.environment import Environment
+from plugins.loader import PluginCatalog, PluginLoader, PluginManifest
 
-from jochen_x.core.events.bus import EventBus
-from jochen_x.core.exceptions.plugin import (
-    PluginError,
-    PluginIsolationError,
-    PluginLifecycleError,
-    PluginLoadError,
+from app.bootstrap import (
+    BootstrapContext,
+    PluginActivationStage,
+    PluginDiscoveryStage,
+    PluginRuntimePool,
+    PluginSecurityStage,
+    StartupPhase,
+    default_stages,
 )
-from jochen_x.core.interfaces.plugin_context import IPluginContext
-from jochen_x.core.observability.audit import AuditLog
-from jochen_x.core.observability.health import HealthMonitor
-from jochen_x.core.observability.logging import StructuredLogger
-from jochen_x.core.plugin.registry import PluginRegistry, PluginState
-from jochen_x.core.registry.service_registry import ServiceRegistry
-from jochen_x.core.types.events import (
-    PluginAction,
-    PluginLifecycleEvent,
-    RuntimeEvent,
-)
-from jochen_x.core.types.health_status import HealthStatus
-from jochen_x.core.types.severity import LogSeverity
+from app.events import ApplicationEventName
+from app.security.plugin_security import PluginSecurity
 
 
-# ---------------------------------------------------------------------------
-# Test plugins
-# ---------------------------------------------------------------------------
+_PLUGIN_TOML_TEMPLATE = """\
+id = "{identifier}"
+version = "1.0.0"
+requires_application = "0.3.0"
+"""
+
+_PLUGIN_CODE_TEMPLATE = '''\
+from sdk.plugin import Plugin
+from sdk.manifest import PluginMetadata
+
+class TestPlugin(Plugin):
+    def metadata(self) -> PluginMetadata:
+        return PluginMetadata(
+            identifier="{identifier}",
+            name="{identifier}",
+            version="1.0.0",
+            api_version="1.0.0",
+            author="Test",
+            description="Integration test plugin",
+        )
+'''
+
+_BROKEN_PLUGIN_CODE = '''\
+raise ImportError("deliberate import failure for testing")
+'''
 
 
-class GoodPlugin:
-    """Plugin that completes all lifecycle callbacks successfully."""
-
-    def __init__(self) -> None:
-        self.lifecycle: list[PluginAction] = []
-        self.context: IPluginContext | None = None
-
-    def on_load(self, context: IPluginContext) -> None:
-        self.context = context
-        self.lifecycle.append(PluginAction.LOAD)
-
-    def on_initialize(self) -> None:
-        self.lifecycle.append(PluginAction.INITIALIZE)
-
-    def on_enable(self) -> None:
-        self.lifecycle.append(PluginAction.ENABLE)
-
-    def on_disable(self) -> None:
-        self.lifecycle.append(PluginAction.DISABLE)
-
-    def on_unload(self) -> None:
-        self.lifecycle.append(PluginAction.UNLOAD)
+def _snapshot_sys_modules() -> set[str]:
+    return set(sys.modules)
 
 
-class CrashingPlugin:
-    """Plugin that crashes on a specified action."""
-
-    def __init__(self, crash_on: PluginAction) -> None:
-        self._crash_on: PluginAction = crash_on
-
-    def on_load(self, context: IPluginContext) -> None:
-        if self._crash_on == PluginAction.LOAD:
-            msg = "Crash during LOAD"
-            raise RuntimeError(msg)
-
-    def on_initialize(self) -> None:
-        if self._crash_on == PluginAction.INITIALIZE:
-            msg = "Crash during INITIALIZE"
-            raise RuntimeError(msg)
-
-    def on_enable(self) -> None:
-        if self._crash_on == PluginAction.ENABLE:
-            msg = "Crash during ENABLE"
-            raise RuntimeError(msg)
-
-    def on_disable(self) -> None:
-        if self._crash_on == PluginAction.DISABLE:
-            msg = "Crash during DISABLE"
-            raise RuntimeError(msg)
-
-    def on_unload(self) -> None:
-        if self._crash_on == PluginAction.UNLOAD:
-            msg = "Crash during UNLOAD"
-            raise RuntimeError(msg)
+def _cleanup_test_modules(snapshot: set[str]) -> None:
+    for name in set(sys.modules) - snapshot:
+        sys.modules.pop(name, None)
 
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture()
-def event_bus() -> EventBus:
-    bus = EventBus()
-    bus.initialize()
-    bus.start()
-    yield bus
-    if bus.is_running():
-        bus.stop()
-
-
-@pytest.fixture()
-def audit_log() -> AuditLog:
-    return AuditLog()
-
-
-@pytest.fixture()
-def logger() -> StructuredLogger:
-    lg = StructuredLogger(default_level=LogSeverity.DEBUG)
-    lg.initialize()
-    lg.start()
-    yield lg
-    lg.stop()
-
-
-@pytest.fixture()
-def service_registry() -> ServiceRegistry:
-    return ServiceRegistry()
-
-
-@pytest.fixture()
-def health_monitor() -> HealthMonitor:
-    return HealthMonitor()
-
-
-@pytest.fixture()
-def plugin_registry(
-    event_bus: EventBus,
-    audit_log: AuditLog,
-    logger: StructuredLogger,
-    service_registry: ServiceRegistry,
-    health_monitor: HealthMonitor,
-) -> PluginRegistry:
-    return PluginRegistry(
-        event_bus=event_bus,
-        audit_log=audit_log,
-        logger=logger,
-        service_registry=service_registry,
-        health_monitor=health_monitor,
+def _create_plugin_package(
+    plugin_dir: Path,
+    identifier: str,
+    *,
+    broken: bool = False,
+) -> None:
+    pkg = plugin_dir / identifier
+    pkg.mkdir(parents=True, exist_ok=True)
+    (pkg / "plugin.toml").write_text(
+        _PLUGIN_TOML_TEMPLATE.format(identifier=identifier),
+        encoding="utf-8",
     )
+    code = _BROKEN_PLUGIN_CODE if broken else _PLUGIN_CODE_TEMPLATE.format(identifier=identifier)
+    (pkg / "__init__.py").write_text(code, encoding="utf-8")
 
 
-# ===================================================================
-# Integration Tests
-# ===================================================================
+def _make_context(root: Path) -> BootstrapContext:
+    logger = logging.getLogger("test.integration.pipeline")
+    events = EventBus(logger=logger)
+    registry = ServiceRegistry()
+    versions = VersionManager(Version.parse("0.8.0"))
+    context = BootstrapContext(root=root)
+    context.logger = logger
+    context.events = events
+    context.registry = registry
+    context.versions = versions
+    context.environment = Environment.from_root(root)
+    context.settings = ApplicationSettings(
+        name="Test",
+        version="0.8.0",
+        log_level="INFO",
+        theme_mode="dark",
+        developer_enabled=False,
+        database_path="data/test.sqlite3",
+        plugin_directory="plugins",
+    )
+    return context
 
 
-class TestFullLifecycleIntegration:
-    """End-to-end lifecycle with real runtime components."""
+class TestFullPluginPipeline(unittest.TestCase):
+    """Discovery → Security → Activation → Shutdown end-to-end."""
 
-    def test_complete_lifecycle(
-        self, plugin_registry: PluginRegistry
-    ) -> None:
-        plugin = GoodPlugin()
+    def setUp(self) -> None:
+        self._modules_snapshot = _snapshot_sys_modules()
 
-        plugin_registry.load_plugin("alpha", plugin)
-        assert plugin_registry.get_plugin_state("alpha") == PluginState.LOADED
+    def tearDown(self) -> None:
+        _cleanup_test_modules(self._modules_snapshot)
 
-        plugin_registry.initialize_plugin("alpha")
-        assert (
-            plugin_registry.get_plugin_state("alpha")
-            == PluginState.INITIALIZED
-        )
+    def test_full_plugin_pipeline(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plugin_dir = root / "plugins"
+            _create_plugin_package(plugin_dir, "integ-pipeline-plugin")
+            context = _make_context(root)
 
-        plugin_registry.enable_plugin("alpha")
-        assert (
-            plugin_registry.get_plugin_state("alpha") == PluginState.ENABLED
-        )
-
-        plugin_registry.disable_plugin("alpha")
-        assert (
-            plugin_registry.get_plugin_state("alpha") == PluginState.DISABLED
-        )
-
-        plugin_registry.unload_plugin("alpha")
-        assert plugin_registry.has_plugin("alpha") is False
-
-        assert plugin.lifecycle == [
-            PluginAction.LOAD,
-            PluginAction.INITIALIZE,
-            PluginAction.ENABLE,
-            PluginAction.DISABLE,
-            PluginAction.UNLOAD,
-        ]
-
-    def test_context_provides_event_bus(
-        self, plugin_registry: PluginRegistry, event_bus: EventBus
-    ) -> None:
-        plugin = GoodPlugin()
-        plugin_registry.load_plugin("alpha", plugin)
-
-        assert plugin.context is not None
-        bus = plugin.context.get_event_bus()
-        assert bus is event_bus
-
-
-class TestAuditIntegration:
-    """Verify audit log records all lifecycle transitions."""
-
-    def test_all_transitions_audited(
-        self,
-        plugin_registry: PluginRegistry,
-        audit_log: AuditLog,
-    ) -> None:
-        plugin = GoodPlugin()
-
-        plugin_registry.load_plugin("alpha", plugin)
-        plugin_registry.initialize_plugin("alpha")
-        plugin_registry.enable_plugin("alpha")
-        plugin_registry.disable_plugin("alpha")
-        plugin_registry.unload_plugin("alpha")
-
-        entries = audit_log.get_entries(limit=100)
-        lifecycle_entries = [
-            e for e in entries if isinstance(e, PluginLifecycleEvent)
-        ]
-
-        actions = [e.action for e in lifecycle_entries]
-        assert PluginAction.LOAD in actions
-        assert PluginAction.INITIALIZE in actions
-        assert PluginAction.ENABLE in actions
-        assert PluginAction.DISABLE in actions
-        assert PluginAction.UNLOAD in actions
-
-    def test_audit_integrity_after_lifecycle(
-        self,
-        plugin_registry: PluginRegistry,
-        audit_log: AuditLog,
-    ) -> None:
-        plugin = GoodPlugin()
-        plugin_registry.load_plugin("alpha", plugin)
-        plugin_registry.initialize_plugin("alpha")
-
-        assert audit_log.verify_integrity() is True
-
-    def test_failed_action_audited(
-        self,
-        plugin_registry: PluginRegistry,
-        audit_log: AuditLog,
-    ) -> None:
-        plugin = CrashingPlugin(crash_on=PluginAction.LOAD)
-
-        with pytest.raises(PluginLoadError):
-            plugin_registry.load_plugin("broken", plugin)
-
-        entries = audit_log.get_entries(limit=100)
-        lifecycle_entries = [
-            e for e in entries if isinstance(e, PluginLifecycleEvent)
-        ]
-
-        failures = [e for e in lifecycle_entries if not e.success]
-        assert len(failures) >= 1
-
-
-class TestEventBusIntegration:
-    """Verify lifecycle events arrive on the real EventBus."""
-
-    def test_lifecycle_events_published(
-        self,
-        plugin_registry: PluginRegistry,
-        event_bus: EventBus,
-    ) -> None:
-        received: list[PluginLifecycleEvent] = []
-
-        def handler(event: RuntimeEvent) -> None:
-            if isinstance(event, PluginLifecycleEvent):
-                received.append(event)
-
-        event_bus.subscribe(PluginLifecycleEvent, handler)
-
-        plugin = GoodPlugin()
-        plugin_registry.load_plugin("alpha", plugin)
-        plugin_registry.initialize_plugin("alpha")
-
-        time.sleep(0.1)
-
-        actions = [e.action for e in received]
-        assert PluginAction.LOAD in actions
-        assert PluginAction.INITIALIZE in actions
-
-
-class TestHealthMonitorIntegration:
-    """Verify health monitoring with real HealthMonitor."""
-
-    def test_plugin_registered_with_health_monitor(
-        self,
-        plugin_registry: PluginRegistry,
-        health_monitor: HealthMonitor,
-    ) -> None:
-        plugin_registry.load_plugin("alpha", GoodPlugin())
-
-        assert "Plugin[alpha]" in health_monitor.get_registered_components()
-
-    def test_plugin_unregistered_from_health_monitor(
-        self,
-        plugin_registry: PluginRegistry,
-        health_monitor: HealthMonitor,
-    ) -> None:
-        plugin_registry.load_plugin("alpha", GoodPlugin())
-        plugin_registry.unload_plugin("alpha")
-
-        assert (
-            "Plugin[alpha]" not in health_monitor.get_registered_components()
-        )
-
-    def test_health_status_tracks_plugin_sandbox(
-        self,
-        plugin_registry: PluginRegistry,
-        health_monitor: HealthMonitor,
-    ) -> None:
-        plugin_registry.load_plugin("alpha", GoodPlugin())
-        health_monitor.run_checks()
-
-        status = health_monitor.get_status("Plugin[alpha]")
-        assert status == HealthStatus.HEALTHY
-
-
-class TestPluginIsolationIntegration:
-    """Verify isolation with real runtime components."""
-
-    def test_crashing_plugin_does_not_affect_good_plugin(
-        self, plugin_registry: PluginRegistry
-    ) -> None:
-        crashing = CrashingPlugin(crash_on=PluginAction.INITIALIZE)
-        good = GoodPlugin()
-
-        plugin_registry.load_plugin("crash", crashing)
-        plugin_registry.load_plugin("good", good)
-
-        with pytest.raises(PluginError):
-            plugin_registry.initialize_plugin("crash")
-
-        plugin_registry.initialize_plugin("good")
-        plugin_registry.enable_plugin("good")
-
-        assert (
-            plugin_registry.get_plugin_state("good") == PluginState.ENABLED
-        )
-
-    def test_context_disposed_after_unload(
-        self, plugin_registry: PluginRegistry
-    ) -> None:
-        plugin = GoodPlugin()
-        plugin_registry.load_plugin("alpha", plugin)
-
-        ctx = plugin_registry.get_plugin_context("alpha")
-        plugin_registry.unload_plugin("alpha")
-
-        with pytest.raises(PluginIsolationError):
-            ctx.get_event_bus()
-
-    def test_multiple_plugins_independent_lifecycle(
-        self, plugin_registry: PluginRegistry
-    ) -> None:
-        plugins = {f"p{i}": GoodPlugin() for i in range(5)}
-
-        for pid, p in plugins.items():
-            plugin_registry.load_plugin(pid, p)
-            plugin_registry.initialize_plugin(pid)
-            plugin_registry.enable_plugin(pid)
-
-        plugin_registry.disable_plugin("p2")
-        plugin_registry.unload_plugin("p2")
-
-        for pid in ["p0", "p1", "p3", "p4"]:
-            assert (
-                plugin_registry.get_plugin_state(pid) == PluginState.ENABLED
+            event_log: list[str] = []
+            context.events.subscribe(
+                str(ApplicationEventName.PLUGIN_LOADING),
+                lambda e: event_log.append(f"loading:{e.payload['identifier']}"),
+            )
+            context.events.subscribe(
+                str(ApplicationEventName.PLUGIN_LOADED),
+                lambda e: event_log.append(f"loaded:{e.payload['identifier']}"),
+            )
+            context.events.subscribe(
+                "security.plugin.verified",
+                lambda e: event_log.append(f"verified:{e.payload['identifier']}"),
+            )
+            context.events.subscribe(
+                str(ApplicationEventName.PLUGIN_ACTIVATING),
+                lambda e: event_log.append(f"activating:{e.payload['identifier']}"),
+            )
+            context.events.subscribe(
+                str(ApplicationEventName.PLUGIN_ACTIVATED),
+                lambda e: event_log.append(f"activated:{e.payload['identifier']}"),
             )
 
-        assert plugin_registry.has_plugin("p2") is False
+            # Phase 1: Discovery
+            discovery = PluginDiscoveryStage()
+            discovery.execute(context)
+            self.assertEqual(len(context.manifests), 1)
+            self.assertEqual(context.manifests[0].identifier, "integ-pipeline-plugin")
 
-    def test_unload_with_callback_failure_still_completes(
-        self, plugin_registry: PluginRegistry
-    ) -> None:
-        crashing = CrashingPlugin(crash_on=PluginAction.UNLOAD)
-        plugin_registry.load_plugin("crash", crashing)
+            # Phase 2: Security
+            security = PluginSecurity(context.events, logger=context.logger)
+            security.approve("integ-pipeline-plugin")
+            context.registry.register(PluginSecurity, security)
+            security_stage = PluginSecurityStage()
+            security_stage.execute(context)
+            self.assertEqual(len(context.admitted_manifests), 1)
 
-        plugin_registry.unload_plugin("crash")
+            # Phase 3: Activation
+            activation = PluginActivationStage()
+            activation.execute(context)
+            pool = context.registry.get(PluginRuntimePool)
+            self.assertEqual(len(pool.runtimes), 1)
 
-        assert plugin_registry.has_plugin("crash") is False
+            from sdk.plugin import PluginLifecycleState
 
-    def test_illegal_transitions_rejected(
-        self, plugin_registry: PluginRegistry
-    ) -> None:
-        plugin_registry.load_plugin("alpha", GoodPlugin())
+            self.assertIs(pool.runtimes[0].state, PluginLifecycleState.STARTED)
 
-        with pytest.raises(PluginLifecycleError):
-            plugin_registry.enable_plugin("alpha")
+            # Phase 4: Shutdown (reverse order)
+            for runtime in reversed(pool.runtimes):
+                runtime.shutdown()
+            self.assertIs(pool.runtimes[0].state, PluginLifecycleState.STOPPED)
 
-        assert (
-            plugin_registry.get_plugin_state("alpha") == PluginState.LOADED
-        )
+            # Verify event sequence
+            self.assertEqual(event_log, [
+                "loading:integ-pipeline-plugin",
+                "loaded:integ-pipeline-plugin",
+                "verified:integ-pipeline-plugin",
+                "activating:integ-pipeline-plugin",
+                "activated:integ-pipeline-plugin",
+            ])
+
+
+class TestDefaultStagesOrdering(unittest.TestCase):
+    """Verifies correct stage ordering in default_stages()."""
+
+    def test_default_stages_ordering(self) -> None:
+        stages = default_stages()
+        names = [s.name for s in stages]
+        phases = [s.phase for s in stages]
+
+        # Phases must be monotonically non-decreasing
+        for i in range(len(phases) - 1):
+            self.assertLessEqual(
+                phases[i],
+                phases[i + 1],
+                f"Stage {names[i + 1]} (phase {phases[i + 1].name}) "
+                f"appears after {names[i]} (phase {phases[i].name})",
+            )
+
+        # All four phases must be represented
+        phase_set = set(phases)
+        for phase in StartupPhase:
+            self.assertIn(phase, phase_set, f"Phase {phase.name} missing from default stages")
+
+        # Critical ordering constraints within phases
+        self.assertLess(names.index("plugins"), names.index("plugin_security"))
+        self.assertLess(names.index("plugin_security"), names.index("plugin_activation"))
+        self.assertLess(names.index("plugin_activation"), names.index("dependency_injection"))
+
+
+class TestGracefulDegradation(unittest.TestCase):
+    """One faulty plugin must not prevent activation of a good plugin."""
+
+    def setUp(self) -> None:
+        self._modules_snapshot = _snapshot_sys_modules()
+
+    def tearDown(self) -> None:
+        _cleanup_test_modules(self._modules_snapshot)
+
+    def test_graceful_degradation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plugin_dir = root / "plugins"
+            _create_plugin_package(plugin_dir, "integ-good-plugin")
+            _create_plugin_package(plugin_dir, "integ-broken-plugin", broken=True)
+            context = _make_context(root)
+
+            failed_ids: list[str] = []
+            activated_ids: list[str] = []
+            context.events.subscribe(
+                str(ApplicationEventName.PLUGIN_FAILED),
+                lambda e: failed_ids.append(e.payload["identifier"]),
+            )
+            context.events.subscribe(
+                str(ApplicationEventName.PLUGIN_ACTIVATED),
+                lambda e: activated_ids.append(e.payload["identifier"]),
+            )
+
+            # Discovery
+            discovery = PluginDiscoveryStage()
+            discovery.execute(context)
+            self.assertEqual(len(context.manifests), 2)
+
+            # Security — approve both
+            security = PluginSecurity(context.events, logger=context.logger)
+            security.approve("integ-good-plugin")
+            security.approve("integ-broken-plugin")
+            context.registry.register(PluginSecurity, security)
+            security_stage = PluginSecurityStage()
+            security_stage.execute(context)
+            self.assertEqual(len(context.admitted_manifests), 2)
+
+            # Activation — broken plugin fails, good plugin succeeds
+            activation = PluginActivationStage()
+            activation.execute(context)
+            pool = context.registry.get(PluginRuntimePool)
+
+            self.assertEqual(len(pool.runtimes), 1)
+            self.assertIn("integ-broken-plugin", failed_ids)
+            self.assertIn("integ-good-plugin", activated_ids)
+
+
+if __name__ == "__main__":
+    unittest.main()

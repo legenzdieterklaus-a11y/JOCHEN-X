@@ -15,6 +15,28 @@ from typing import Any, ClassVar, Protocol, runtime_checkable
 
 from core.events import Event
 
+__all__ = [
+    "ApplicationEventName",
+    "EventPublisher",
+    "ApplicationEvent",
+    "ApplicationStarting",
+    "ApplicationStarted",
+    "ApplicationReady",
+    "ApplicationStateChanged",
+    "PluginLoading",
+    "PluginLoaded",
+    "PluginFailed",
+    "PluginActivating",
+    "PluginActivated",
+    "ConfigurationChanged",
+    "ThemeChanged",
+    "BusyStarted",
+    "BusyFinished",
+    "ShutdownRequested",
+    "ShutdownCompleted",
+    "ErrorRaised",
+]
+
 
 class ApplicationEventName(StrEnum):
     """Canonical, stable names for every application lifecycle event."""
@@ -26,6 +48,8 @@ class ApplicationEventName(StrEnum):
     PLUGIN_LOADING = "application.plugin.loading"
     PLUGIN_LOADED = "application.plugin.loaded"
     PLUGIN_FAILED = "application.plugin.failed"
+    PLUGIN_ACTIVATING = "application.plugin.activating"
+    PLUGIN_ACTIVATED = "application.plugin.activated"
     CONFIGURATION_CHANGED = "application.configuration.changed"
     THEME_CHANGED = "application.theme.changed"
     BUSY_STARTED = "application.busy.started"
@@ -147,6 +171,29 @@ class PluginFailed(ApplicationEvent):
 
     def _payload(self) -> dict[str, Any]:
         return {"identifier": self.identifier, "reason": self.reason}
+
+
+@dataclass(frozen=True, slots=True)
+class PluginActivating(ApplicationEvent):
+    """Emitted before a plugin runtime is imported and started."""
+
+    EVENT_NAME: ClassVar[ApplicationEventName] = ApplicationEventName.PLUGIN_ACTIVATING
+    identifier: str
+
+    def _payload(self) -> dict[str, Any]:
+        return {"identifier": self.identifier}
+
+
+@dataclass(frozen=True, slots=True)
+class PluginActivated(ApplicationEvent):
+    """Emitted after a plugin runtime has been successfully started."""
+
+    EVENT_NAME: ClassVar[ApplicationEventName] = ApplicationEventName.PLUGIN_ACTIVATED
+    identifier: str
+    version: str
+
+    def _payload(self) -> dict[str, Any]:
+        return {"identifier": self.identifier, "version": self.version}
 
 
 @dataclass(frozen=True, slots=True)
