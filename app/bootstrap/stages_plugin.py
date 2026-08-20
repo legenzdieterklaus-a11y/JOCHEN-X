@@ -16,7 +16,10 @@ from core.version import Version
 from plugins.loader import PluginCatalog, PluginLoader, PluginManifest
 
 from app.bootstrap.types import (
+    PIPELINE_STAGE_REFERENCES,
     BootstrapContext,
+    PipelineRejection,
+    PipelineStage,
     RejectionCode,
     StartupPhase,
     ValidationDiagnostic,
@@ -30,6 +33,45 @@ __all__ = [
     "PluginRuntimePool",
     "PluginSecurityStage",
 ]
+
+
+def _record_rejection(
+    context: BootstrapContext,
+    logger: logging.Logger,
+    *,
+    identifier: str,
+    stage: PipelineStage,
+    criterion: str,
+    reason: str,
+    rejection_code: RejectionCode | None = None,
+) -> None:
+    """Record a structured pipeline rejection on the context (FR-006).
+
+    The result carries the triggering pipeline stage (AC-006.1) and the
+    violated criterion with its PL-01..PL-05 reference (AC-006.2). Event
+    publication stays with the respective pipeline step; this helper only
+    records and logs.
+    """
+    rejection = PipelineRejection(
+        identifier=identifier,
+        stage=stage,
+        criterion=criterion,
+        pipeline_reference=PIPELINE_STAGE_REFERENCES[stage],
+        rejection_code=rejection_code,
+        reason=reason,
+    )
+    context.pipeline_rejections.append(rejection)
+    logger.warning(
+        "plugins.pipeline.rejected",
+        extra={"context": {
+            "identifier": identifier,
+            "stage": stage.value,
+            "criterion": criterion,
+            "pipeline_reference": rejection.pipeline_reference,
+            "rejection_code": rejection_code.value if rejection_code else "",
+            "reason": reason,
+        }},
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,13 +92,27 @@ class PluginDiscoveryStage:
         registry.register(PluginLoader, loader)
         context.plugins = loader
         try:
-            manifests = loader.discover()
+            manifests, incompatible = loader.discover_report()
         except Exception as error:  # discovery failure is recoverable; run with no plugins
             logger.error("plugins.discovery_failed", exc_info=error)
             PluginFailed("", str(error)).publish(events)
             context.manifests = ()
             registry.register(PluginCatalog, PluginCatalog(()))
             return
+        for manifest in incompatible:
+            _record_rejection(
+                context,
+                logger,
+                identifier=manifest.identifier,
+                stage=PipelineStage.DISCOVERY,
+                criterion="application version compatibility (manifest-only discovery)",
+                reason=(
+                    f"Required application version not satisfied: "
+                    f"{manifest.identifier!r} requires "
+                    f">={manifest.required_application_version}"
+                ),
+                rejection_code=RejectionCode.APPLICATION_VERSION_INCOMPATIBLE,
+            )
         for manifest in manifests:
             PluginLoading(manifest.identifier).publish(events)
             PluginLoaded(manifest.identifier, str(manifest.version)).publish(events)
@@ -72,6 +128,7 @@ def _resolve_dependencies(
     manifests: tuple[PluginManifest, ...],
     logger: logging.Logger,
     events: EventBus,
+    context: BootstrapContext | None = None,
 ) -> tuple[PluginManifest, ...]:
     """Resolve plugin dependencies and return manifests in activation order.
 
@@ -158,8 +215,22 @@ def _resolve_dependencies(
                     changed = True
                     break
 
+    def record_dependency_rejections(identifiers: list[str]) -> None:
+        if context is None:
+            return
+        for pid in identifiers:
+            _record_rejection(
+                context,
+                logger,
+                identifier=pid,
+                stage=PipelineStage.DEPENDENCY_RESOLUTION,
+                criterion="dependency resolution (graph, versions, cycles)",
+                reason=rejected[pid],
+            )
+
     active = {pid for pid in by_id if pid not in rejected}
     if not active:
+        record_dependency_rejections(sorted(rejected))
         for pid in sorted(rejected):
             PluginRejected(pid, rejected[pid]).publish(events)
             logger.warning(
@@ -211,6 +282,7 @@ def _resolve_dependencies(
                     filtered.append(pid)
             ordered = filtered
 
+    record_dependency_rejections(sorted(rejected))
     for pid in sorted(rejected):
         PluginRejected(pid, rejected[pid]).publish(events)
         logger.warning(
@@ -274,6 +346,15 @@ class PluginSecurityStage:
             try:
                 integrity = security.validate_integrity(manifest)
                 if not integrity.admitted:
+                    _record_rejection(
+                        context,
+                        logger,
+                        identifier=identifier,
+                        stage=PipelineStage.INTEGRITY,
+                        criterion="integrity validation (ADR-005)",
+                        reason=integrity.reason,
+                        rejection_code=RejectionCode.INTEGRITY_FAILED,
+                    )
                     logger.warning(
                         "plugins.security.integrity_rejected",
                         extra={"context": {
@@ -291,6 +372,15 @@ class PluginSecurityStage:
                             f"API version incompatible: plugin requires "
                             f"{manifest.api_version}, host provides {SDK_API_VERSION}"
                         )
+                        _record_rejection(
+                            context,
+                            logger,
+                            identifier=identifier,
+                            stage=PipelineStage.API_VERSION_GATE,
+                            criterion="SDK API version compatibility (pre-import gate)",
+                            reason=reason,
+                            rejection_code=RejectionCode.API_VERSION_INCOMPATIBLE,
+                        )
                         PluginRejected(identifier, reason).publish(events)
                         logger.warning(
                             "plugins.security.api_version_rejected",
@@ -305,6 +395,15 @@ class PluginSecurityStage:
                 # Step 3: Permission Authorization (WP-05 / ADR-006)
                 perm_result = security.validate_permissions(manifest)
                 if not perm_result.admitted:
+                    _record_rejection(
+                        context,
+                        logger,
+                        identifier=identifier,
+                        stage=PipelineStage.PERMISSION,
+                        criterion="permission authorization (ADR-006, default-deny)",
+                        reason=perm_result.reason,
+                        rejection_code=RejectionCode.PERMISSION_DENIED,
+                    )
                     logger.warning(
                         "plugins.security.permission_rejected",
                         extra={"context": {
@@ -325,7 +424,7 @@ class PluginSecurityStage:
 
         # Step 4: Dependency Resolution (WP-06 / ADR-007)
         _dep_start = perf_counter()
-        resolved = _resolve_dependencies(tuple(admitted), logger, events)
+        resolved = _resolve_dependencies(tuple(admitted), logger, events, context)
         if context.metrics is not None:
             context.metrics.record_duration(
                 "plugin.dependency.resolution_ms",
@@ -414,10 +513,21 @@ def _reject_plugin(
     diagnostic: ValidationDiagnostic,
     events: EventBus,
     logger: logging.Logger,
+    context: BootstrapContext | None = None,
 ) -> None:
     """Centralized rejection handler for activation validation (WP-07)."""
     from app.security.events import PluginRejected
 
+    if context is not None:
+        _record_rejection(
+            context,
+            logger,
+            identifier=identifier,
+            stage=PipelineStage.ACTIVATION,
+            criterion="pre-import activation validation",
+            reason=diagnostic.reason,
+            rejection_code=diagnostic.rejection_code,
+        )
     PluginRejected(identifier, diagnostic.reason).publish(events)
     logger.warning(
         "plugins.activation.validation_rejected",
@@ -481,7 +591,7 @@ class PluginActivationStage:
                         manifest, admitted_ids, SDK_API_VERSION,
                     )
                     if not diagnostic.accepted:
-                        _reject_plugin(identifier, diagnostic, events, logger)
+                        _reject_plugin(identifier, diagnostic, events, logger, context)
                         context.activation_failures.append(ActivationFailure(
                             plugin_id=identifier,
                             phase="validation",
@@ -553,6 +663,15 @@ class PluginActivationStage:
                         extra={"context": {"identifier": identifier, "version": metadata.version}},
                     )
                 except Exception as error:
+                    _record_rejection(
+                        context,
+                        logger,
+                        identifier=identifier,
+                        stage=PipelineStage.ACTIVATION,
+                        criterion="plugin activation (import, wiring, start)",
+                        reason=str(error),
+                        rejection_code=RejectionCode.ACTIVATION_FAILED,
+                    )
                     context.activation_failures.append(ActivationFailure(
                         plugin_id=identifier,
                         phase="activation",

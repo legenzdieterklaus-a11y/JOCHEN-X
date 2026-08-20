@@ -49,16 +49,31 @@ class PluginLoader:
 
     def discover(self) -> tuple[PluginManifest, ...]:
         """Read compatible ``plugin.toml`` files from direct plugin directories."""
+        return self.discover_report()[0]
+
+    def discover_report(
+        self,
+    ) -> tuple[tuple[PluginManifest, ...], tuple[PluginManifest, ...]]:
+        """Read all manifests in one manifest-only pass.
+
+        Returns:
+            A ``(compatible, incompatible)`` pair; incompatible manifests are
+            those whose required application version is not satisfied. No
+            plugin code is imported in either case.
+        """
         if not self._directory.exists():
-            return ()
-        manifests: list[PluginManifest] = []
+            return (), ()
+        compatible: list[PluginManifest] = []
+        incompatible: list[PluginManifest] = []
         for path in self._directory.glob("*/plugin.toml"):
             with path.open("rb") as handle:
                 data = tomllib.load(handle)
             manifest = _parse_manifest(data)
             if self._versions.is_compatible(manifest.required_application_version):
-                manifests.append(manifest)
-        return tuple(manifests)
+                compatible.append(manifest)
+            else:
+                incompatible.append(manifest)
+        return tuple(compatible), tuple(incompatible)
 
 
 def _parse_manifest(data: dict[str, object]) -> PluginManifest:

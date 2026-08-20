@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import IntEnum, StrEnum
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
 if TYPE_CHECKING:
@@ -30,6 +32,10 @@ __all__ = [
     "BootstrapContext",
     "BootstrapError",
     "BootstrapStage",
+    "PIPELINE_ORDER",
+    "PIPELINE_STAGE_REFERENCES",
+    "PipelineRejection",
+    "PipelineStage",
     "RejectionCode",
     "StartupPhase",
     "ValidationDiagnostic",
@@ -55,6 +61,7 @@ class RejectionCode(StrEnum):
     """Structured rejection reason codes for the plugin validation pipeline."""
 
     MANIFEST_INVALID = "manifest_invalid"
+    APPLICATION_VERSION_INCOMPATIBLE = "application_version_incompatible"
     API_VERSION_INCOMPATIBLE = "api_version_incompatible"
     PERMISSION_DENIED = "permission_denied"
     DEPENDENCY_MISSING = "dependency_missing"
@@ -65,6 +72,63 @@ class RejectionCode(StrEnum):
     IMPORT_FAILED = "import_failed"
     SUBCLASS_MISSING = "subclass_missing"
     ACTIVATION_FAILED = "activation_failed"
+
+
+class PipelineStage(StrEnum):
+    """Stages of the plugin runtime pipeline, in execution order.
+
+    The five baseline stages carry the invariant pipeline order PL-01..PL-05
+    (Bootstrap Baseline 1.0 §5.2, BI-06); the API version gate is the
+    additional runtime check executed within the security validation after
+    integrity (PL-02) and before permission authorization (PL-03). The order
+    itself is never altered by this typing — it only names the stages.
+    """
+
+    DISCOVERY = "discovery"
+    INTEGRITY = "integrity"
+    API_VERSION_GATE = "api_version_gate"
+    PERMISSION = "permission"
+    DEPENDENCY_RESOLUTION = "dependency_resolution"
+    ACTIVATION = "activation"
+
+
+PIPELINE_ORDER: tuple[PipelineStage, ...] = (
+    PipelineStage.DISCOVERY,
+    PipelineStage.INTEGRITY,
+    PipelineStage.API_VERSION_GATE,
+    PipelineStage.PERMISSION,
+    PipelineStage.DEPENDENCY_RESOLUTION,
+    PipelineStage.ACTIVATION,
+)
+"""Execution order of the runtime pipeline; PL-01..PL-05 remain invariant."""
+
+
+PIPELINE_STAGE_REFERENCES: Mapping[PipelineStage, str] = MappingProxyType({
+    PipelineStage.DISCOVERY: "PL-01",
+    PipelineStage.INTEGRITY: "PL-02",
+    PipelineStage.API_VERSION_GATE: "PL-02..PL-03",
+    PipelineStage.PERMISSION: "PL-03",
+    PipelineStage.DEPENDENCY_RESOLUTION: "PL-04",
+    PipelineStage.ACTIVATION: "PL-05",
+})
+"""Read-only reference of each stage to the pipeline order per Baseline §5.2."""
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineRejection:
+    """Structured plugin rejection result of the runtime pipeline (FR-006).
+
+    Carries the triggering pipeline stage (AC-006.1) and the violated
+    criterion together with its reference to the invariant pipeline order
+    PL-01..PL-05 per Bootstrap Baseline 1.0 §5.2 (AC-006.2).
+    """
+
+    identifier: str
+    stage: PipelineStage
+    criterion: str
+    pipeline_reference: str
+    rejection_code: RejectionCode | None = None
+    reason: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +174,7 @@ class BootstrapContext:
     service_provider: ServiceProvider | None = None
     metrics: Metrics | None = None
     activation_failures: list[ActivationFailure] = field(default_factory=list)
+    pipeline_rejections: list[PipelineRejection] = field(default_factory=list)
 
 
 def _require(value: T | None, name: str) -> T:

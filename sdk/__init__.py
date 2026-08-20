@@ -17,6 +17,10 @@ authors. Every public API a plugin needs is re-exported here:
 The package intentionally does not export any foundation-internal type:
 plugin code that stays inside ``sdk`` never breaks when the foundation
 implementation evolves.
+
+Author guidelines (manifest schema, lifecycle contract, permission model)
+are consolidated in a single place: ``docs/sdk.md`` §15 „Plugin Author
+Guidelines".
 """
 
 from __future__ import annotations

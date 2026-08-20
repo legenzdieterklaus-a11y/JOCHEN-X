@@ -529,3 +529,85 @@ verified by consumers who inject their own widget factory.
 - [x] Comprehensive unit tests exist for every SDK subsystem.
 - [x] No existing foundation module was modified.
 - [x] No breaking changes to the existing public surface.
+
+---
+
+## 15. Plugin Author Guidelines (Autorenvorgaben)
+
+> **This chapter is the single authoritative place for all plugin author
+> guidelines** (FR-005 / AC-005.1): manifest schema, lifecycle contract, and
+> permission model. Other documents (`extensions.md`, `CONTRIBUTING.md`)
+> reference this chapter and do not redefine its content. The canonical
+> working example is the Golden Reference Plugin
+> (`plugins/reference/plugin.toml`, `plugins/reference/__init__.py`).
+
+### 15.1 Manifest Schema (`plugin.toml`, v2)
+
+Every plugin ships a `plugin.toml` in its own directory below the plugin
+root. Discovery is manifest-only (PL-01): the foundation never imports
+plugin code before validation. Fields as parsed by `plugins.loader`:
+
+| Table / Key | Required | Meaning |
+|---|---|---|
+| `[plugin] id` | yes | Unique plugin identifier (also the import package name) |
+| `[plugin] version` | yes | Plugin semver |
+| `[plugin] requires_application` | yes | Minimum compatible application version |
+| `[plugin] api_version` | no | SDK API version the plugin was built against (major must match the host's `SDK_API_VERSION`) |
+| `[plugin] category` | no | One of the `PluginCategory` values (default `general`) |
+| `[plugin] entry_point` | no | Entry module hint |
+| `[plugin.metadata]` | no | Free-form string map (`display_name`, `author`, `description`, …) |
+| `[plugin.permissions] capabilities` | no | List of declared permissions (see 15.3) |
+| `[plugin.dependencies] requires` | no | List of `{ id, version }` dependency entries (`version` as `>=x.y.z`) |
+
+V1 manifests with flat top-level keys remain valid; unknown fields are
+ignored for forwards compatibility.
+
+### 15.2 Lifecycle Contract
+
+Plugins derive from `Plugin` (or `BackgroundPlugin`, `UIPlugin`,
+`ToolPlugin`, `WorkflowPlugin`) and are driven by `PluginRuntime` through
+the ordered lifecycle (`PluginLifecycleState`):
+
+```
+unloaded → initialized → started → stopped
+                     └──────────→ failed
+```
+
+| Hook | Called | Contract |
+|---|---|---|
+| `metadata()` | always | Returns validated `PluginMetadata`; must be constant |
+| `on_initialize()` | once, after context attach (`unloaded` → `initialized`) | One-time setup; no running behaviour |
+| `on_start()` | `initialized` → `started` | Begin operation; long-running work only via `BackgroundPlugin.run_background` |
+| `on_stop()` | `started` → `stopped` | Release resources; **must be idempotent** |
+| `on_shutdown()` | once, after stop | Release resources that outlive normal operation |
+
+Any exception in a hook moves the plugin to `failed` and aborts further
+lifecycle progression. Activation by the host occurs exclusively after the
+fully successful security pipeline (PL-05).
+
+### 15.3 Permission Model
+
+Permissions are declared in the manifest (`capabilities`) and mirrored as
+`PluginPermission` values in `PluginMetadata.permissions`. The host policy
+is **default-deny** (ADR-006): a capability that is neither wildcard- nor
+plugin-granted is denied, and plugins with denied capabilities are rejected
+before activation (PL-03). Declared permissions gate the runtime façades —
+undeclared capabilities are refused by the context even when the underlying
+service exists.
+
+| `PluginPermission` | Value | Grants |
+|---|---|---|
+| `NETWORK` | `network` | Outbound network access |
+| `FILESYSTEM` | `filesystem` | File-system access beyond the plugin's resource root |
+| `CREDENTIALS` | `credentials` | Access to secret storage |
+| `SYSTEM_OBSERVATION` | `system_observation` | Read access to system/host diagnostics |
+| `UI` | `ui` | Contributing UI widgets |
+| `EVENTS_PUBLISH` | `events.publish` | Publishing events on the plugin event bus |
+| `EVENTS_SUBSCRIBE` | `events.subscribe` | Subscribing to events on the plugin event bus |
+| `CONFIGURATION` | `configuration` | Plugin configuration store access |
+| `RESOURCES` | `resources` | Plugin resource root access |
+| `SERVICES` | `services` | Resolving host services via `PluginServices` |
+
+Rejections anywhere in the runtime pipeline produce a structured result
+carrying the triggering pipeline stage and the violated criterion with its
+reference to the invariant pipeline order PL-01..PL-05 (FR-006).

@@ -5,6 +5,10 @@ Dieses Dokument beschreibt den Arbeitsablauf für menschliche Entwickler und KI-
 **Verbindliche Architekturreferenz:** [Architecture Book v2.0](docs/architecture-book-v2.md) (APPROVED / FROZEN).  
 Arbeitsregeln: [CLAUDE.md](CLAUDE.md) · Visuelle Übersicht: [ARCHITECTURE.md](ARCHITECTURE.md).
 
+**Plugin-Autoren:** Alle Autorenvorgaben (Manifest-Schema, Lifecycle-Vertrag,
+Permission-Modell) stehen konsolidiert an einer einzigen Stelle:
+[Plugin SDK — §15 Plugin Author Guidelines](docs/sdk.md#15-plugin-author-guidelines-autorenvorgaben).
+
 ---
 
 ## Voraussetzungen

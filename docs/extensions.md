@@ -11,6 +11,11 @@ architecture in JOCHEN X v0.7.0. It consolidates the requirements, architecture,
 design, API surface, and testability contracts for the Plugin Framework into a
 single source of truth.
 
+> **Plugin author guidelines** (manifest schema, lifecycle contract,
+> permission model) are consolidated in a single place:
+> [Plugin SDK — §15 Plugin Author Guidelines](sdk.md#15-plugin-author-guidelines-autorenvorgaben).
+> This framework specification does not redefine them.
+
 **Cross-references:**
 
 | Document | Relevance |
