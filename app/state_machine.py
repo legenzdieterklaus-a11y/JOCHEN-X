@@ -10,11 +10,12 @@ injected publisher so observers never poll for state.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from enum import StrEnum
 from threading import RLock
+from types import MappingProxyType
 
-from core.exceptions import JochenXError
+from core.exceptions import StateTransitionError, TransitionRejection
 
 from app.events import ApplicationStateChanged, EventPublisher
 
@@ -34,8 +35,12 @@ class ApplicationState(StrEnum):
     SHUTDOWN = "shutdown"
 
 
-class IllegalStateTransitionError(JochenXError):
-    """Raised when a state transition is not permitted by the transition table."""
+class IllegalStateTransitionError(StateTransitionError):
+    """Raised when a state transition is not permitted by the transition table.
+
+    The structured rejection result (source, target, reason, allowed targets)
+    is available as ``rejection``.
+    """
 
 
 _TRANSITIONS: dict[ApplicationState, frozenset[ApplicationState]] = {
@@ -59,6 +64,32 @@ _TRANSITIONS: dict[ApplicationState, frozenset[ApplicationState]] = {
     ApplicationState.SHUTTING_DOWN: frozenset({ApplicationState.SHUTDOWN}),
     ApplicationState.SHUTDOWN: frozenset(),
 }
+
+
+def transition_table() -> Mapping[ApplicationState, frozenset[ApplicationState]]:
+    """Return the complete, read-only application transition table.
+
+    Every state appears as a key; the value is the exhaustive set of permitted
+    target states. Transitions outside this table are rejected.
+    """
+    return MappingProxyType(_TRANSITIONS)
+
+
+def _reject(
+    source: ApplicationState,
+    target: ApplicationState | None,
+    reason: str,
+    allowed: frozenset[ApplicationState],
+) -> IllegalStateTransitionError:
+    """Build the structured rejection carried by every denied transition."""
+    return IllegalStateTransitionError(
+        TransitionRejection(
+            source=source.value,
+            target=None if target is None else target.value,
+            reason=reason,
+            allowed=tuple(sorted(state.value for state in allowed)),
+        )
+    )
 
 
 TransitionListener = Callable[[ApplicationState, ApplicationState], None]
@@ -110,13 +141,21 @@ class ApplicationStateMachine:
         with self._lock:
             return target in _TRANSITIONS[self._state]
 
+    def allowed_transitions(self) -> frozenset[ApplicationState]:
+        """Return the exhaustive set of currently permitted target states."""
+        with self._lock:
+            return _TRANSITIONS[self._state]
+
     def assert_state(self, *expected: ApplicationState) -> None:
         """Raise :class:`IllegalStateTransitionError` if not in an expected state."""
         with self._lock:
             if self._state not in expected:
                 allowed = ", ".join(state.value for state in expected)
-                raise IllegalStateTransitionError(
-                    f"Expected one of [{allowed}] but current state is '{self._state.value}'"
+                raise _reject(
+                    self._state,
+                    None,
+                    f"Expected one of [{allowed}] but current state is '{self._state.value}'",
+                    frozenset(expected),
                 )
 
     def transition(self, target: ApplicationState) -> ApplicationState:
@@ -134,8 +173,11 @@ class ApplicationStateMachine:
         with self._lock:
             previous = self._state
             if target not in _TRANSITIONS[previous]:
-                raise IllegalStateTransitionError(
-                    f"Illegal transition: '{previous.value}' -> '{target.value}'"
+                raise _reject(
+                    previous,
+                    target,
+                    f"Illegal transition: '{previous.value}' -> '{target.value}'",
+                    _TRANSITIONS[previous],
                 )
             self._state = target
             listeners = tuple(self._listeners)

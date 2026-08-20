@@ -1,6 +1,7 @@
 """Application exception taxonomy and Qt boundary guard."""
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import ParamSpec, TypeVar
 
 
@@ -14,6 +15,32 @@ class ConfigurationError(JochenXError):
 
 class DatabaseError(JochenXError):
     """Raised for database initialization or repository failures."""
+
+
+@dataclass(frozen=True, slots=True)
+class TransitionRejection:
+    """Structured rejection result for a denied lifecycle state transition.
+
+    Carries the reason so callers never have to parse exception messages.
+    ``target`` is ``None`` when a state expectation (not a transition request)
+    was violated.
+    """
+
+    source: str
+    target: str | None
+    reason: str
+    allowed: tuple[str, ...]
+
+
+class StateTransitionError(JochenXError):
+    """Raised when a lifecycle state transition is rejected.
+
+    The structured :class:`TransitionRejection` is available as ``rejection``.
+    """
+
+    def __init__(self, rejection: TransitionRejection) -> None:
+        super().__init__(rejection.reason)
+        self.rejection = rejection
 
 
 P = ParamSpec("P")
