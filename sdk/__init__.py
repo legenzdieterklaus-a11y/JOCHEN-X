@@ -28,7 +28,12 @@ from sdk.config import (
     PluginConfigStorage,
     Validator,
 )
-from sdk.context import PluginContext, PluginContextBuilder
+from sdk.context import (
+    ExtensionRegistrar,
+    PluginContext,
+    PluginContextBuilder,
+    PluginExtensions,
+)
 from sdk.errors import (
     PluginConfigurationError,
     PluginDependencyError,
@@ -96,6 +101,7 @@ __all__ = [
     "validate_semver",
     # Runtime context and façades
     "EventBusPort",
+    "ExtensionRegistrar",
     "FilePluginConfigStorage",
     "InMemoryPluginConfigStorage",
     "PermissionCheck",
@@ -106,6 +112,7 @@ __all__ = [
     "PluginEvent",
     "PluginEventBus",
     "PluginEventHandler",
+    "PluginExtensions",
     "PluginLogger",
     "PluginResources",
     "PluginServices",

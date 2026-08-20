@@ -25,13 +25,59 @@ from pathlib import Path
 from typing import Any
 
 from sdk.config import PluginConfig, PluginConfigStorage
-from sdk.errors import PluginPermissionError
+from sdk.errors import PluginPermissionError, PluginSDKError
 from sdk.events import EventBusPort, PluginEventBus
 from sdk.logging import PluginLogger
 from sdk.manifest import PluginMetadata, PluginPermission
 from sdk.resources import PluginResources
 from sdk.services import PluginServices
 from sdk.version import SDK_API_VERSION
+
+
+ExtensionRegistrar = Callable[[str, Any], None]
+"""Host-supplied callable that registers an extension at a named extension point.
+
+Implementations raise ``ValueError`` for undefined points and ``TypeError``
+for extensions without a usable identifier; the SDK passes both through
+unchanged so plugin authors need no framework-internal imports.
+"""
+
+
+class PluginExtensions:
+    """Plugin-facing façade for registering functionality at defined extension points.
+
+    The set of extension points is host-defined; plugins address a point by
+    its name (e.g. ``"tools"``, ``"ui"``, ``"commands"``, ``"workflows"``).
+    Registration is strictly additive — it never alters an existing API
+    signature or contract.
+    """
+
+    __slots__ = ("_plugin_id", "_registrar")
+
+    def __init__(self, plugin_id: str, registrar: ExtensionRegistrar | None = None) -> None:
+        """Create the façade.
+
+        Args:
+            plugin_id: Identifier of the owning plugin (for diagnostics).
+            registrar: Host-supplied registration callable; when absent,
+                :meth:`register` raises :class:`PluginSDKError`.
+        """
+        self._plugin_id = plugin_id
+        self._registrar = registrar
+
+    def register(self, point: str, extension: Any) -> None:
+        """Register ``extension`` at the extension point named ``point``.
+
+        Raises:
+            PluginSDKError: If the host provided no extension registrar.
+            ValueError: If ``point`` is not a defined extension point.
+            TypeError: If the extension lacks a usable identifier.
+        """
+        if self._registrar is None:
+            raise PluginSDKError(
+                f"Extension registration is not available to plugin {self._plugin_id!r}"
+            )
+        self._registrar(point, extension)
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +106,7 @@ class PluginContext:
     application_version: str
     api_version: str
     metadata_view: Mapping[str, Any] = field(default_factory=dict)
+    extensions: PluginExtensions | None = None
 
 
 class PluginContextBuilder:
@@ -91,6 +138,7 @@ class PluginContextBuilder:
         self._application_version: str = "0.7.0"
         self._api_version: str = SDK_API_VERSION
         self._extra_view: dict[str, Any] = {}
+        self._extension_registrar: ExtensionRegistrar | None = None
 
     def with_event_bus(
         self,
@@ -155,6 +203,11 @@ class PluginContextBuilder:
         self._extra_view.update(view)
         return self
 
+    def with_extensions(self, registrar: ExtensionRegistrar) -> PluginContextBuilder:
+        """Attach the host-supplied extension registrar."""
+        self._extension_registrar = registrar
+        return self
+
     def build(self) -> PluginContext:
         """Assemble the immutable :class:`PluginContext`.
 
@@ -202,6 +255,7 @@ class PluginContextBuilder:
             validators=self._config_validators,
         )
         resources = PluginResources(self._resources_root)
+        extensions = PluginExtensions(plugin_id, self._extension_registrar)
 
         metadata_view: dict[str, Any] = {
             "plugin_id": plugin_id,
@@ -221,7 +275,13 @@ class PluginContextBuilder:
             application_version=self._application_version,
             api_version=self._api_version,
             metadata_view=metadata_view,
+            extensions=extensions,
         )
 
 
-__all__ = ["PluginContext", "PluginContextBuilder"]
+__all__ = [
+    "ExtensionRegistrar",
+    "PluginContext",
+    "PluginContextBuilder",
+    "PluginExtensions",
+]

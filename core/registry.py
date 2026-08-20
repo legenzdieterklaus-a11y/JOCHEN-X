@@ -29,16 +29,27 @@ class ServiceDescriptor:
     lifetime: Lifetime
     initialized: bool
     dependencies: tuple[str, ...]
+    service_type: str = ""
+    available_since: str = "registration"
 
 
 _MISSING = object()
 
 
 class _Registration:
-    def __init__(self, factory: Factory, lifetime: Lifetime) -> None:
+    def __init__(
+        self,
+        factory: Factory,
+        lifetime: Lifetime,
+        *,
+        service_type: str = "",
+        available_since: str = "registration",
+    ) -> None:
         self.factory = factory
         self.lifetime = lifetime
         self.instance = _MISSING
+        self.service_type = service_type
+        self.available_since = available_since
 
 
 class ServiceScope:
@@ -70,22 +81,44 @@ class ServiceRegistry:
         self._registrations: dict[type[Any], _Registration] = {}
         self._lock = RLock()
 
-    def register(self, key: type[T], service: T) -> None:
-        self.register_factory(key, lambda: service, lifetime=Lifetime.SINGLETON)
+    def register(self, key: type[T], service: T, *, available_since: str = "registration") -> None:
+        self.register_factory(
+            key,
+            lambda: service,
+            lifetime=Lifetime.SINGLETON,
+            service_type=type(service).__name__,
+            available_since=available_since,
+        )
         self._registrations[key].instance = service
 
     def register_factory(
-        self, key: type[T], factory: Callable[..., T], *, lifetime: Lifetime = Lifetime.SINGLETON
+        self,
+        key: type[T],
+        factory: Callable[..., T],
+        *,
+        lifetime: Lifetime = Lifetime.SINGLETON,
+        service_type: str | None = None,
+        available_since: str | None = None,
     ) -> None:
+        resolved_type = service_type or (
+            factory.__name__ if inspect.isclass(factory) else key.__name__
+        )
         with self._lock:
             if key in self._registrations:
                 raise ValueError(f"Service already registered: {key.__name__}")
-            self._registrations[key] = _Registration(factory, lifetime)
+            self._registrations[key] = _Registration(
+                factory,
+                lifetime,
+                service_type=resolved_type,
+                available_since=available_since or "on_first_resolve",
+            )
 
     def register_type(
         self, key: type[T], implementation: type[T], *, lifetime: Lifetime = Lifetime.SINGLETON
     ) -> None:
-        self.register_factory(key, implementation, lifetime=lifetime)
+        self.register_factory(
+            key, implementation, lifetime=lifetime, service_type=implementation.__name__
+        )
 
     def get(self, key: type[T]) -> T:
         return self._resolve(key, None, ())
@@ -100,26 +133,45 @@ class ServiceRegistry:
     def descriptors(self) -> tuple[ServiceDescriptor, ...]:
         """Return safe metadata for diagnostics without exposing registrations."""
         with self._lock:
-            result = []
-            for key, registration in self._registrations.items():
-                signature = inspect.signature(registration.factory)
-                dependencies = tuple(
-                    parameter.annotation.__name__
-                    if isinstance(parameter.annotation, type)
-                    else str(parameter.annotation)
-                    for parameter in signature.parameters.values()
-                    if parameter.kind not in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD)
-                    and parameter.annotation is not inspect.Parameter.empty
-                )
-                result.append(
-                    ServiceDescriptor(
-                        key.__name__,
-                        registration.lifetime,
-                        registration.instance is not _MISSING,
-                        dependencies,
-                    )
-                )
-            return tuple(result)
+            return tuple(
+                self._describe(key, registration)
+                for key, registration in self._registrations.items()
+            )
+
+    def describe(self, key: type[Any]) -> ServiceDescriptor:
+        """Return the description of a single registered service.
+
+        The description covers name, service type, and availability point.
+
+        Raises:
+            LookupError: If no service is registered under ``key``.
+        """
+        with self._lock:
+            try:
+                registration = self._registrations[key]
+            except KeyError as error:
+                raise LookupError(f"Service not registered: {key.__name__}") from error
+            return self._describe(key, registration)
+
+    @staticmethod
+    def _describe(key: type[Any], registration: _Registration) -> ServiceDescriptor:
+        signature = inspect.signature(registration.factory)
+        dependencies = tuple(
+            parameter.annotation.__name__
+            if isinstance(parameter.annotation, type)
+            else str(parameter.annotation)
+            for parameter in signature.parameters.values()
+            if parameter.kind not in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD)
+            and parameter.annotation is not inspect.Parameter.empty
+        )
+        return ServiceDescriptor(
+            key.__name__,
+            registration.lifetime,
+            registration.instance is not _MISSING,
+            dependencies,
+            registration.service_type,
+            registration.available_since,
+        )
 
     def _resolve(
         self, key: type[T], scope: ServiceScope | None, trail: tuple[type[Any], ...]

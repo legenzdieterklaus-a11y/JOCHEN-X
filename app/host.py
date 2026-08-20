@@ -9,6 +9,7 @@ from ai.gateway import ProviderRegistry, RoutingEngine
 from config.settings import ConfigurationService
 from core.environment import Environment
 from core.events import EventBus
+from core.extensions import ExtensionRegistry
 from core.lifecycle import LifecycleManager
 from core.logging import configure_logging
 from core.observability import Metrics, Tracer
@@ -64,6 +65,7 @@ class ApplicationHost:
         self.services.register(SecretManager, SecretManager())
         self.services.register(AuditHooks, AuditHooks(logger))
         self.services.register(EventBus, EventBus(logger=logger))
+        self.services.register(ExtensionRegistry, ExtensionRegistry())
         self.services.register(LifecycleManager, LifecycleManager())
         self.services.register(PerformanceController, PerformanceController())
         self.services.register(Metrics, Metrics())
