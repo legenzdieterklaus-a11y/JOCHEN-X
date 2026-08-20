@@ -106,8 +106,18 @@ class ApplicationHost:
         """Register a callback invoked when a fatal error is escalated."""
         self._fatal_callback = callback
 
+    @property
+    def fatal_report(self) -> ErrorReport | None:
+        """Return the recorded fatal error report, if the host is in a failed state."""
+        return self._fatal
+
     def start(self) -> ApplicationContext:
         """Execute the startup sequence and return the ready application context.
+
+        A startup failure follows a defined error path (FR-009): the error is
+        recorded as fatal, every partially initialised component is released,
+        and the lifecycle settles in ``SHUTDOWN`` before the original error is
+        re-raised.
 
         Raises:
             Exception: Re-raises any startup failure after recording it as fatal.
@@ -116,10 +126,44 @@ class ApplicationHost:
             context = self._startup.execute(self._root)
         except Exception as error:
             self._error_handler.handle(error, category=ErrorCategory.FATAL, context={"phase": "startup"})
+            self._abort_startup()
             raise
         self._context = context
         self._disposables = context.registry.get(DisposableRegistry)
         return context
+
+    def _abort_startup(self) -> None:
+        """Release partial state after a failed startup and settle the lifecycle.
+
+        Guarded throughout: aborting must never mask the original startup
+        error. Already-initialised components are disposed via the bootstrap
+        manager (AC-009.2); the state machine is then driven to the defined
+        terminal state instead of remaining mid-startup (AC-009.1).
+        """
+        pending = self._bootstrap.pending_context()
+        if pending is not None:
+            try:
+                self._bootstrap.abort(pending)
+            except Exception as error:
+                self._logger.error(
+                    "host.startup_abort_failed",
+                    extra={"context": {"error": str(error)}},
+                )
+        if self._state.state is not ApplicationState.SHUTDOWN:
+            sequence = ShutdownSequence(
+                state_machine=self._state,
+                events=self._events,
+                disposables=DisposableRegistry(self._logger),
+                worker_pool=self._workers,
+                logger=self._logger,
+            )
+            try:
+                sequence.execute(exit_code=1, reason="startup_failed")
+            except Exception as error:
+                self._logger.error(
+                    "host.startup_settle_failed",
+                    extra={"context": {"error": str(error)}},
+                )
 
     def shutdown(self, *, exit_code: int = 0, reason: str = "requested") -> None:
         """Perform a graceful, idempotent shutdown."""

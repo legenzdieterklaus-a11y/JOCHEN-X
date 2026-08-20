@@ -28,6 +28,7 @@ from app.bootstrap.types import (
 from app.events import PluginActivated, PluginActivating, PluginFailed, PluginLoaded, PluginLoading
 
 __all__ = [
+    "ActivationFailurePool",
     "PluginActivationStage",
     "PluginDiscoveryStage",
     "PluginRuntimePool",
@@ -551,6 +552,18 @@ class PluginRuntimePool:
 
 
 @dataclass(frozen=True, slots=True)
+class ActivationFailurePool:
+    """Registry-stored record of failed plugin activations (FR-010 / AC-010.2).
+
+    Keeps the documentation of failed activations available beyond bootstrap,
+    while the platform continues operating with the successfully activated
+    plugins.
+    """
+
+    failures: tuple[ActivationFailure, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class PluginActivationStage:
     """Imports, instantiates, wires, and starts admitted plugins."""
 
@@ -699,7 +712,15 @@ class PluginActivationStage:
         context.plugin_runtimes = tuple(runtimes)
         pool = PluginRuntimePool(tuple(runtimes))
         registry.register(PluginRuntimePool, pool)
+        registry.register(
+            ActivationFailurePool,
+            ActivationFailurePool(tuple(context.activation_failures)),
+        )
         logger.info(
             "plugins.activation.completed",
-            extra={"context": {"activated": len(runtimes), "total": len(context.admitted_manifests)}},
+            extra={"context": {
+                "activated": len(runtimes),
+                "failed": len(context.activation_failures),
+                "total": len(context.admitted_manifests),
+            }},
         )
