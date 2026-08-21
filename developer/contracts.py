@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from typing import Protocol
 from core.events import EventDelivery
 from core.registry import ServiceDescriptor
-from core.observability import HealthStatus
+from core.observability import HealthStatus, PluginDiagnostic
 
 class EventDiagnostics(Protocol):
     def delivery_history(self) -> tuple[EventDelivery, ...]: ...
@@ -14,3 +14,5 @@ class PluginDiagnostics(Protocol):
     def discover(self) -> Iterable[object]: ...
 class HealthDiagnostics(Protocol):
     def health(self) -> Iterable[HealthStatus]: ...
+class PluginRuntimeDiagnostics(Protocol):
+    def diagnostics(self) -> Iterable[PluginDiagnostic]: ...

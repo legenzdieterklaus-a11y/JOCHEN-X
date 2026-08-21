@@ -1,6 +1,7 @@
 """Low-overhead process metrics and future gaming-observation ports."""
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, fields
 from typing import Protocol
 import time
 
@@ -34,3 +35,28 @@ class PerformanceMonitor:
         except ImportError:
             pass
         return MetricsSnapshot(time.process_time(), ram)
+
+
+class ProcessMetricSource:
+    """Publishes :class:`PerformanceMonitor` samples as metric values (FR-008).
+
+    The adapter satisfies the ``MetricSource`` protocol of
+    :mod:`core.observability_registry`, so the existing process sampling can be
+    registered on the platform's metrics registry without changing either the
+    :class:`MetricsSnapshot` contract or any metric already recorded. Values
+    the platform cannot measure stay absent instead of being reported as zero.
+    """
+
+    __slots__ = ("_monitor",)
+
+    def __init__(self, monitor: PerformanceMonitor | None = None) -> None:
+        self._monitor = monitor or PerformanceMonitor()
+
+    def collect(self) -> Mapping[str, float]:
+        """Return the numeric fields of a fresh snapshot, skipping unset ones."""
+        snapshot = self._monitor.snapshot()
+        return {
+            field.name: float(value)
+            for field in fields(snapshot)
+            if (value := getattr(snapshot, field.name)) is not None
+        }

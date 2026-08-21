@@ -8,9 +8,14 @@ import re
 from typing import Iterable
 
 from core.events import EventDelivery
-from core.observability import HealthStatus
+from core.observability import DiagnosticOutcome, HealthStatus, PluginDiagnostic
 from core.registry import ServiceDescriptor
-from .contracts import EventDiagnostics, PluginDiagnostics, ServiceDiagnostics
+from .contracts import (
+    EventDiagnostics,
+    PluginDiagnostics,
+    PluginRuntimeDiagnostics,
+    ServiceDiagnostics,
+)
 from .models import ConfigurationView, DeveloperSummary, LogEntry, PluginStatus
 
 _SECRET = re.compile(r"(secret|token|password|credential|api[_-]?key)\s*[=:]\s*[^\s]+", re.I)
@@ -27,6 +32,7 @@ class DeveloperPlatform:
         events: EventDiagnostics | None = None,
         services: ServiceDiagnostics | None = None,
         plugins: PluginDiagnostics | None = None,
+        diagnostics: PluginRuntimeDiagnostics | None = None,
         log_file: Path | None = None,
         started_at: float | None = None,
     ) -> None:
@@ -34,6 +40,7 @@ class DeveloperPlatform:
         self._events = events
         self._services = services
         self._plugins = plugins
+        self._diagnostics = diagnostics
         self._log_file = log_file
         self._started_at = started_at or time()
 
@@ -79,18 +86,39 @@ class DeveloperPlatform:
 
     def plugins(self) -> tuple[PluginStatus, ...]:
         self._require()
+        activation = self._activation_outcomes()
         return tuple(
             PluginStatus(
                 str(item.identifier),
                 str(item.version),
                 str(item.required_application_version),
-                True,
+                activation.get(str(item.identifier), True),
                 "unverified",
                 (),
                 (),
             )
             for item in (self._plugins.discover() if self._plugins else ())
         )
+
+    def plugin_diagnostics(self) -> tuple[PluginDiagnostic, ...]:
+        """Return the consolidated plugin runtime diagnostics (FR-007).
+
+        The diagnostics are read from the injected port, so they are available
+        programmatically rather than only through the log (AC-007.2). Without
+        a port the platform reports nothing instead of a placeholder.
+        """
+        self._require()
+        return tuple(self._diagnostics.diagnostics()) if self._diagnostics else ()
+
+    def _activation_outcomes(self) -> dict[str, bool]:
+        """Map plugin identifier to activation success; empty without the port."""
+        outcomes: dict[str, bool] = {}
+        for diagnostic in self._diagnostics.diagnostics() if self._diagnostics else ():
+            activated = diagnostic.outcome == DiagnosticOutcome.ACTIVATED
+            outcomes[diagnostic.plugin_id] = (
+                outcomes.get(diagnostic.plugin_id, True) and activated
+            )
+        return outcomes
 
     def logs(self, *, query: str = "", level: str = "") -> tuple[LogEntry, ...]:
         self._require()

@@ -11,7 +11,18 @@ if TYPE_CHECKING:
     from sdk.plugin import PluginRuntime
 
 from core.events import EventBus
-from core.observability import ActivationFailure
+from core.observability import (
+    ActivationFailure,
+    DiagnosticOutcome,
+    PluginDiagnostic,
+    PluginDiagnosticsReport,
+    PluginHealthCheck,
+)
+from core.observability_registry import (
+    CallableMetricSource,
+    HealthCheckRegistry,
+    MetricsRegistry,
+)
 from core.version import Version
 from plugins.loader import PluginCatalog, PluginLoader, PluginManifest
 
@@ -73,6 +84,83 @@ def _record_rejection(
             "reason": reason,
         }},
     )
+
+
+def _build_diagnostics_report(
+    context: BootstrapContext,
+    activated: tuple[str, ...],
+) -> PluginDiagnosticsReport:
+    """Consolidate the diagnostics the pipeline already recorded (FR-007).
+
+    Reads the rejections of every pipeline stage and the identifiers that
+    reached a started runtime; nothing is re-evaluated and the pipeline itself
+    stays untouched (BI-06). Each entry carries the plugin identifier and the
+    affected stage with its PL-01..PL-05 reference (AC-007.1). The activation
+    diagnostics keep the structured context the WP-005 failure records carry.
+    """
+    failure_context = {
+        failure.plugin_id: dict(failure.context, phase=failure.phase)
+        for failure in context.activation_failures
+    }
+    diagnostics = [
+        PluginDiagnostic(
+            plugin_id=rejection.identifier,
+            stage=rejection.stage.value,
+            outcome=(
+                DiagnosticOutcome.FAILED
+                if rejection.rejection_code is RejectionCode.ACTIVATION_FAILED
+                else DiagnosticOutcome.REJECTED
+            ),
+            reason=rejection.reason,
+            pipeline_reference=rejection.pipeline_reference,
+            code=rejection.rejection_code.value if rejection.rejection_code else "",
+            context={
+                "criterion": rejection.criterion,
+                **failure_context.get(rejection.identifier, {}),
+            },
+        )
+        for rejection in context.pipeline_rejections
+    ]
+    diagnostics.extend(
+        PluginDiagnostic(
+            plugin_id=identifier,
+            stage=PipelineStage.ACTIVATION.value,
+            outcome=DiagnosticOutcome.ACTIVATED,
+            pipeline_reference=PIPELINE_STAGE_REFERENCES[PipelineStage.ACTIVATION],
+        )
+        for identifier in activated
+    )
+    return PluginDiagnosticsReport(tuple(diagnostics))
+
+
+def _build_health_registry(
+    context: BootstrapContext,
+    activated: tuple[tuple[str, PluginRuntime], ...],
+    failed_state: str,
+) -> HealthCheckRegistry:
+    """Register one health check per plugin on the existing protocol (FR-008).
+
+    Activated plugins report their live lifecycle state through the existing
+    :class:`~core.observability.PluginHealthCheck`; plugins whose activation
+    failed report the failed state. The registry therefore reflects the real
+    runtime instead of a static placeholder (AC-008.2).
+    """
+    checks = HealthCheckRegistry()
+    for identifier, runtime in activated:
+        checks.register(
+            identifier,
+            PluginHealthCheck(identifier, lambda bound=runtime: bound.state.value),
+        )
+    registered = set(checks.names())
+    for failure in context.activation_failures:
+        if failure.plugin_id in registered:
+            continue
+        registered.add(failure.plugin_id)
+        checks.register(
+            failure.plugin_id,
+            PluginHealthCheck(failure.plugin_id, lambda: failed_state),
+        )
+    return checks
 
 
 @dataclass(frozen=True, slots=True)
@@ -578,7 +666,7 @@ class PluginActivationStage:
         from sdk.config import FilePluginConfigStorage
         from sdk.context import PluginContextBuilder
         from sdk.manifest import PluginMetadata
-        from sdk.plugin import Plugin, PluginRuntime
+        from sdk.plugin import Plugin, PluginLifecycleState, PluginRuntime
         from sdk.version import SDK_API_VERSION
 
         settings = _require(context.settings, "settings")
@@ -590,6 +678,7 @@ class PluginActivationStage:
         plugin_dir = environment.root / settings.plugin_directory
         admitted_ids = frozenset(m.identifier for m in context.admitted_manifests)
         runtimes: list[PluginRuntime] = []
+        activated: list[tuple[str, PluginRuntime]] = []
 
         parent = str(plugin_dir)
         added_to_path = parent not in sys.path
@@ -668,6 +757,7 @@ class PluginActivationStage:
                     runtime.start()
 
                     runtimes.append(runtime)
+                    activated.append((identifier, runtime))
 
                     PluginActivated(identifier, metadata.version).publish(events)
 
@@ -716,6 +806,19 @@ class PluginActivationStage:
             ActivationFailurePool,
             ActivationFailurePool(tuple(context.activation_failures)),
         )
+        diagnostics = _build_diagnostics_report(
+            context, tuple(identifier for identifier, _ in activated),
+        )
+        registry.register(PluginDiagnosticsReport, diagnostics)
+        registry.register(
+            HealthCheckRegistry,
+            _build_health_registry(
+                context, tuple(activated), PluginLifecycleState.FAILED.value,
+            ),
+        )
+        metrics_registry = MetricsRegistry()
+        metrics_registry.register("plugin.runtime", CallableMetricSource(diagnostics.counts))
+        registry.register(MetricsRegistry, metrics_registry)
         logger.info(
             "plugins.activation.completed",
             extra={"context": {
