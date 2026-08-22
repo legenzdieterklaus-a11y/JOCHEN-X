@@ -15,12 +15,25 @@ the graph during bootstrap when eager verification is wanted.
 
 ## Plugin Framework Services
 
-The Plugin Framework registers two singletons during bootstrap:
+The plugin pipeline registers eight distinct service keys during bootstrap, all
+as singleton instances:
 
-- `PluginLoader` — manifest discovery service.
-- `PluginCatalog` — immutable snapshot of discovered plugin identifiers.
+| Service key | Registered by | Content |
+|---|---|---|
+| `PluginLoader` | `PluginDiscoveryStage` | Manifest discovery service. |
+| `PluginCatalog` | `PluginDiscoveryStage` | Immutable snapshot of the discovered, version-compatible identifiers. |
+| `PluginSecurity` | `PluginSecurityStage` | Trust ledger and manifest validation, registered unless an earlier stage supplied one. |
+| `PluginCatalog` (replaced) | `PluginSecurityStage` | The discovery snapshot is replaced by the admitted set, so the registered catalog is the admission result. |
+| `PluginRuntimePool` | `PluginActivationStage` | Activated `PluginRuntime` instances in activation order. |
+| `ActivationFailurePool` | `PluginActivationStage` | `ActivationFailure` records of failed activations. |
+| `PluginDiagnosticsReport` | `PluginActivationStage` | Consolidated `PluginDiagnostic` entries of the whole pipeline run. |
+| `HealthCheckRegistry` | `PluginActivationStage` | One `PluginHealthCheck` per plugin. |
+| `MetricsRegistry` | `PluginActivationStage` | Additive metric-source registration point carrying the `plugin.runtime` source. |
 
-See [Plugin Framework](extensions.md) §7 for the complete registration table.
+Because `PluginCatalog` is registered twice, the nine registration calls yield
+eight distinct keys.
+
+See [Plugin Framework](extensions.md) §7 for the same table with lifetimes.
 
 **Cross-references:** [Core](core.md) · [Plugin Framework](extensions.md) ·
 [Foundation Architecture](architecture.md)

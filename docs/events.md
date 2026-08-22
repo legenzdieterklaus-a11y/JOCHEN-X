@@ -17,6 +17,8 @@ reserved for brief in-process notifications.
 | `ApplicationStateChanged` | `application.state.changed` | `{"previous": str, "current": str}` |
 | `PluginLoading` | `application.plugin.loading` | `{"identifier": str}` |
 | `PluginLoaded` | `application.plugin.loaded` | `{"identifier": str, "version": str}` |
+| `PluginActivating` | `application.plugin.activating` | `{"identifier": str}` |
+| `PluginActivated` | `application.plugin.activated` | `{"identifier": str, "version": str}` |
 | `PluginFailed` | `application.plugin.failed` | `{"identifier": str, "reason": str}` |
 | `ConfigurationChanged` | `application.configuration.changed` | `{"keys": list[str]}` |
 | `ThemeChanged` | `application.theme.changed` | `{"mode": str}` |

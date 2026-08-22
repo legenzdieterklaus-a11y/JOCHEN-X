@@ -37,8 +37,8 @@ graph TB
     end
 
     subgraph "Services"
-        Observability["ObservabilityService"]
-        SecuritySvc["SecurityService"]
+        Observability["services/observability.py\nPerformanceMonitor\nProcessMetricSource"]
+        SecuritySvc["services/security.py\nSecurityPolicy / CapabilityModel\nSecretManager / AuditHooks"]
     end
 
     subgraph "Developer (optional)"
@@ -97,7 +97,7 @@ Vom Dateisystem bis zum laufenden Plugin durchläuft ein Plugin fünf Phasen. Di
 ```mermaid
 flowchart TD
     TOML["plugin.toml\n(statische Deklaration)"]
-    Discovery["PluginDiscoveryStage\nPluginManifest (3 Felder)"]
+    Discovery["PluginDiscoveryStage\nPluginManifest (9 Felder, 3 Pflicht)"]
     Security["PluginSecurityStage\nverify_manifest() → Verdict"]
     Boundary["── Code-Ausführungsgrenze ──"]
     Activation["PluginActivationStage\nimport → Plugin.metadata()\nContextBuilder → Runtime"]
@@ -109,9 +109,83 @@ flowchart TD
     style Boundary fill:none,stroke:#e74c3c,stroke-width:2,stroke-dasharray:5
 ```
 
-**Kein Plugin-Code vor der Sicherheitsprüfung.** Discovery liest nur TOML. Security prüft den Trust-Ledger. Erst nach Zulassung wird Python-Code importiert.
+**Kein Plugin-Code vor der Sicherheitsprüfung.** Discovery liest nur TOML. Security prüft Integrität, API-Version, Berechtigungen und Abhängigkeiten. Erst nach Zulassung wird Python-Code importiert.
 
 **Referenz:** [ADR-001](docs/adr/001-core-boundaries.md) (kein Code-Import), [ADR-010](docs/adr/010-plugin-sdk-architecture.md) (SDK), [ADR-011](docs/adr/011-sdk-host-integration.md) (Integration)
+
+---
+
+## Runtime-Pipeline und Ablehnungsdiagnostik
+
+Die Zulassung eines Plugins durchläuft eine invariante Stufenfolge. `PipelineStage` benennt die Stufen, `PIPELINE_STAGE_REFERENCES` ordnet jeder Stufe ihre Referenz `PL-01`..`PL-05` zu; `PIPELINE_ORDER` fixiert die Reihenfolge.
+
+| Stufe (`PipelineStage`) | Referenz | Prüfgegenstand | Ausführende Stage |
+|---|---|---|---|
+| `DISCOVERY` | `PL-01` | Anwendungsversions-Kompatibilität (manifest-only) | `PluginDiscoveryStage` |
+| `INTEGRITY` | `PL-02` | Integritätsprüfung ([ADR-005](docs/adr/005-plugin-integrity-validation.md)) | `PluginSecurityStage` |
+| `API_VERSION_GATE` | `PL-02..PL-03` | SDK-API-Kompatibilität **vor** jedem Code-Import | `PluginSecurityStage` |
+| `PERMISSION` | `PL-03` | Berechtigungsautorisierung, default-deny ([ADR-006](docs/adr/006-plugin-permission-model.md)) | `PluginSecurityStage` |
+| `DEPENDENCY_RESOLUTION` | `PL-04` | Graph, Versionen, Zyklen ([ADR-007](docs/adr/007-plugin-dependency-resolution.md)) | `PluginSecurityStage` |
+| `ACTIVATION` | `PL-05` | Import, Verdrahtung, Start | `PluginActivationStage` |
+
+Jede Ablehnung wird als strukturierte `PipelineRejection` aufgezeichnet — mit Identifikator, Stufe, verletztem Kriterium, Pipeline-Referenz, `RejectionCode` und Begründung. `ValidationDiagnostic` trägt zusätzlich das Ergebnis der konsolidierten Vor-Import-Prüfung.
+
+Am Ende der Aktivierung veröffentlicht die Foundation drei registry-persistente Aggregate, die den `BootstrapContext` überdauern:
+
+| Registry-Eintrag | Inhalt |
+|---|---|
+| `PluginDiagnosticsReport` | Konsolidierte `PluginDiagnostic`-Einträge aller Stufen (`activated` / `rejected` / `failed`), abfragbar über `for_plugin()`, `for_stage()`, `with_outcome()`, `counts()` |
+| `ActivationFailurePool` | `ActivationFailure`-Datensätze fehlgeschlagener Aktivierungen |
+| `PluginRuntimePool` | Die aktivierten `PluginRuntime`-Instanzen in Aktivierungsreihenfolge |
+
+Ein Ausfall bei der Aktivierung ist isoliert: die übrigen Plugins werden weiter aktiviert, der Fehlschlag bleibt dokumentiert.
+
+**Referenz:** [docs/architecture.md](docs/architecture.md), [docs/extensions.md](docs/extensions.md) §10, [docs/diagnostics.md](docs/diagnostics.md)
+
+---
+
+## Observability
+
+Metriken, Tracing und Health sind In-Memory-Verträge ohne eigenständiges Sampling; keine Komponente startet einen Thread.
+
+```mermaid
+flowchart LR
+    subgraph "core/observability.py"
+        M["Metrics"]
+        HS["HealthStatus / HealthCheck"]
+        PHC["PluginHealthCheck"]
+        PD["PluginDiagnostic
+PluginDiagnosticsReport"]
+    end
+    subgraph "core/observability_registry.py"
+        MR["MetricsRegistry
+MetricSource"]
+        HR["HealthCheckRegistry"]
+    end
+    Pipeline["PluginActivationStage"] -->|"registriert"| HR
+    Pipeline -->|"registriert"| MR
+    Pipeline -->|"registriert"| PD
+    HR -->|"run() → run_health_checks()"| HS
+    PHC --> HS
+    MR -->|"merge(metrics)"| M
+    PM["services/observability.py
+PerformanceMonitor
+ProcessMetricSource"] -->|"MetricSource"| MR
+```
+
+| Baustein | Modul | Verantwortung |
+|---|---|---|
+| `Metrics` | `core/observability.py` | Benannter In-Memory-Recorder (`increment`, `record_duration`, `snapshot`) |
+| `HealthCheck` / `HealthStatus` | `core/observability.py` | Health-Protokoll und Ergebniswert |
+| `PluginHealthCheck` | `core/observability.py` | Health-Check über den **Live**-Lebenszyklus eines Plugins |
+| `PluginDiagnostic(sReport)` | `core/observability.py` | Strukturierte, abfragbare Plugin-Diagnostik |
+| `MetricsRegistry` / `MetricSource` | `core/observability_registry.py` | Additiver Registrierungspunkt für zusätzliche Metrikquellen; Namensraum `"<Quelle>.<Metrik>"`, bestehende Werte gewinnen bei Kollision |
+| `HealthCheckRegistry` | `core/observability_registry.py` | Registrierungspunkt für `HealthCheck`-Implementierungen; `run()` wertet über `run_health_checks()` aus |
+| `ProcessMetricSource` | `services/observability.py` | `MetricSource`-Adapter über `PerformanceMonitor` |
+
+Beide Registrierungspunkte sind **rein additiv**: sie verändern keinen bestehenden Metrik- oder Health-Vertrag.
+
+**Referenz:** [docs/health.md](docs/health.md), [docs/performance.md](docs/performance.md), [docs/diagnostics.md](docs/diagnostics.md)
 
 ---
 
@@ -168,7 +242,7 @@ flowchart TB
     subgraph "SDK (sdk/)"
         Plugin["Plugin\nBackgroundPlugin\nUIPlugin\nToolPlugin\nWorkflowPlugin"]
         Context["PluginContext"]
-        Facades["PluginLogger\nPluginEventBus\nPluginServices\nPluginConfig\nPluginResources"]
+        Facades["PluginLogger\nPluginEventBus\nPluginServices\nPluginConfig\nPluginResources\nPluginExtensions"]
         Manifest["PluginMetadata"]
         Runtime["PluginRuntime"]
     end
@@ -182,6 +256,10 @@ flowchart TB
     Plugin -->|"metadata()"| Manifest
     Plugin -->|"context.*"| Facades
 ```
+
+Plugins tragen Funktionalität über `PluginExtensions` an host-definierten Erweiterungspunkten bei; der Host injiziert dazu einen `ExtensionRegistrar`. Registrierung ist strikt additiv und ändert nie eine bestehende Signatur.
+
+**Versionsstand:** `SDK_VERSION` = `0.9.0`, `SDK_API_VERSION` = `1.0.0` (`sdk/version.py`).
 
 **Referenz:** [ADR-010](docs/adr/010-plugin-sdk-architecture.md) (SDK-Architektur), [docs/sdk.md](docs/sdk.md) (Spezifikation)
 
@@ -242,15 +320,21 @@ flowchart TD
 | Komponente | Modul | Verantwortung |
 |---|---|---|
 | `ApplicationHost` | `app/application_host.py` | Lifecycle-Eigentümer, Start/Shutdown |
-| `BootstrapManager` | `app/bootstrap.py` | Deterministische Stage-Ausführung |
+| `BootstrapManager` | `app/bootstrap/manager.py` | Deterministische Stage-Ausführung |
+| `BootstrapContext` · `PipelineStage` · `PipelineRejection` · `RejectionCode` · `ValidationDiagnostic` | `app/bootstrap/types.py` | Bootstrap-Akkumulator und Pipeline-Typen |
+| `PluginDiscoveryStage` · `PluginSecurityStage` · `PluginActivationStage` · `PluginRuntimePool` · `ActivationFailurePool` | `app/bootstrap/stages_plugin.py` | Plugin-Pipeline und ihre registry-persistenten Aggregate |
 | `ApplicationContext` | `app/context.py` | Immutables Aggregat aller Services |
 | `ServiceRegistry` | `core/registry.py` | Typisierte Service-Registrierung |
 | `EventBus` | `core/events.py` | Thread-safe Event-Distribution |
 | `VersionManager` | `core/version.py` | Semver-Kompatibilitätsprüfung |
+| `Metrics` · `HealthCheck` · `PluginHealthCheck` · `PluginDiagnosticsReport` | `core/observability.py` | Metrik-, Health- und Diagnoseverträge |
+| `MetricsRegistry` · `HealthCheckRegistry` · `MetricSource` | `core/observability_registry.py` | Additive Registrierungspunkte der Observability |
+| `PerformanceMonitor` · `ProcessMetricSource` | `services/observability.py` | Prozess-Sampling ohne Hintergrund-Thread |
 | `PluginLoader` | `plugins/loader.py` | TOML-only Manifest-Discovery |
-| `PluginSecurity` | `app/security/plugin_security.py` | Trust-Validierung |
+| `PluginSecurity` | `app/security/plugin_security.py` | Integritäts-, Berechtigungs- und Trust-Validierung |
 | `PluginRuntime` | `sdk/plugin.py` | Plugin-Lifecycle-Steuerung |
-| `PluginContext` | `sdk/context.py` | Plugin-scoped Runtime-Aggregat |
+| `PluginContext` · `PluginExtensions` | `sdk/context.py` | Plugin-scoped Runtime-Aggregat und Erweiterungspunkte |
+| `EventDiagnostics` · `ServiceDiagnostics` · `PluginDiagnostics` · `HealthDiagnostics` · `PluginRuntimeDiagnostics` | `developer/contracts.py` | Diagnostik-Ports der Developer Platform |
 | `DeveloperPlatform` | `developer/platform.py` | Opt-in Diagnostics und Inspection |
 | `MainWindow` | `ui/navigation/main_window.py` | PySide6-Hauptfenster |
 
@@ -264,10 +348,11 @@ flowchart TD
 | [002](docs/adr/002-event-delivery.md) | Event-Delivery | Akzeptiert |
 | [003](docs/adr/003-optional-developer-platform.md) | Developer Platform opt-in | Akzeptiert |
 | [004](docs/adr/004-plugin-security-integration.md) | Security-Timing | Resolved (ADR-011) |
-| [005](docs/adr/005-plugin-integrity-validation.md) | Integrity-Validation | Offen |
-| [006](docs/adr/006-plugin-permission-model.md) | Permission-Model | Offen |
-| [007](docs/adr/007-plugin-dependency-resolution.md) | Dependency-Resolution | Offen |
+| [005](docs/adr/005-plugin-integrity-validation.md) | Integrity-Validation | APPROVED |
+| [006](docs/adr/006-plugin-permission-model.md) | Permission-Model | APPROVED |
+| [007](docs/adr/007-plugin-dependency-resolution.md) | Dependency-Resolution | APPROVED |
 | [008](docs/adr/008-plugin-context-definition.md) | Plugin-Context | Resolved (ADR-010/011) |
 | [009](docs/adr/009-plugin-isolation-strategy.md) | Isolation-Strategy | Resolved (ADR-011) |
 | [010](docs/adr/010-plugin-sdk-architecture.md) | SDK-Architektur | Akzeptiert |
 | [011](docs/adr/011-sdk-host-integration.md) | SDK-Host-Integration | Akzeptiert |
+| [012](docs/adr/012-plugin-security-policy-configuration.md) | Plugin-Security-Policy-Konfiguration | Akzeptiert |

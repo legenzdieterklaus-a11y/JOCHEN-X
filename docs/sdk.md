@@ -1,9 +1,15 @@
-# Plugin SDK – Specification v0.7.1
+# Plugin SDK – Specification v0.9.0
 
 The JOCHEN X Enterprise Plugin SDK is the sole official programming
-interface for external plugin authors. It sits on top of the frozen v0.7.0
-Plugin Framework and provides a stable, minimal, strictly-typed, and
-independently-testable surface that never exposes framework internals.
+interface for external plugin authors. It sits on top of the
+[Plugin Framework](extensions.md) and provides a stable, minimal,
+strictly-typed, and independently-testable surface that never exposes
+framework internals.
+
+This specification describes `SDK_VERSION` **0.9.0** implementing
+`SDK_API_VERSION` **1.0.0**; both constants are defined in
+[`sdk/version.py`](../sdk/version.py) and are authoritative over any prose
+in this document.
 
 This document is authoritative for every SDK-related topic. It complements
 the [Plugin Framework](extensions.md) specification without changing it.
@@ -52,7 +58,8 @@ sdk/
 ├── resources.py    PluginResources
 ├── events.py       PluginEventBus, PluginEvent, Subscription
 ├── services.py     PluginServices
-├── context.py      PluginContext, PluginContextBuilder
+├── context.py      PluginContext, PluginContextBuilder,
+│                   PluginExtensions, ExtensionRegistrar
 └── plugin.py       Plugin, BackgroundPlugin, UIPlugin, ToolPlugin,
                     WorkflowPlugin, PluginRuntime, PluginLifecycleState
 ```
@@ -65,12 +72,13 @@ any service.
 
 ## 3. SDK Overview
 
-The SDK exposes four thematic surfaces:
+The SDK exposes five thematic surfaces:
 
 1. **Manifest** – how a plugin describes itself.
 2. **Context** – what a plugin receives at runtime.
-3. **Lifecycle** – how a plugin transitions from unloaded to stopped.
-4. **Errors** – what a plugin may raise or catch.
+3. **Extension points** – where a plugin contributes functionality.
+4. **Lifecycle** – how a plugin transitions from unloaded to stopped.
+5. **Errors** – what a plugin may raise or catch.
 
 Every façade in the context is a thin adapter over foundation contracts;
 plugins never import from `core`, `app`, `plugins`, `developer`, `services`,
@@ -85,7 +93,7 @@ or `ui` packages directly.
 | Symbol | Type | Description |
 |---|---|---|
 | `SDK_NAME` | `str` | Stable distribution identifier (`"jochen-x-sdk"`). |
-| `SDK_VERSION` | `str` | Released SDK package semver (`"0.7.1"`). |
+| `SDK_VERSION` | `str` | Released SDK package semver (`"0.9.0"`). |
 | `SDK_API_VERSION` | `str` | Public plugin API contract semver (`"1.0.0"`). |
 | `SDK_VERSION_INFO` | `ApiVersion` | Parsed :class:`ApiVersion` for `SDK_VERSION`. |
 | `SDK_API_VERSION_INFO` | `ApiVersion` | Parsed :class:`ApiVersion` for `SDK_API_VERSION`. |
@@ -167,6 +175,18 @@ Storage is defined by the `PluginConfigStorage` protocol.
 `InMemoryPluginConfigStorage` and `FilePluginConfigStorage` (JSON files) are
 provided. No filesystem detail is exposed to plugin code.
 
+| Symbol | Type | Description |
+|---|---|---|
+| `PluginConfig` | `class` | The configuration store itself. |
+| `PluginConfigStorage` | `Protocol` | Persistence port implemented by the backends below. |
+| `InMemoryPluginConfigStorage` | `class` | Non-persistent backend, primarily for tests. |
+| `FilePluginConfigStorage` | `class` | JSON-file backend rooted at a host-supplied directory. |
+| `Validator` | `Callable[[Any], None]` | Validation callable passed to `register_validator`; raises on an invalid value. |
+
+A `Validator` receives the candidate value and raises any exception to
+reject it; `PluginConfig` normalises the rejection into
+`PluginConfigurationError`.
+
 ### 4.6 Resources – `sdk.resources`
 
 `PluginResources` resolves paths under a plugin-private root supplied by
@@ -193,6 +213,15 @@ Publish and subscribe are gated on `EVENTS_PUBLISH` and `EVENTS_SUBSCRIBE`
 permissions respectively when a permission check is configured (the default
 context builder wires this automatically).
 
+| Symbol | Type | Description |
+|---|---|---|
+| `PluginEvent` | `dataclass` | SDK-owned event value type (`name`, `payload`). |
+| `PluginEventBus` | `class` | Plugin-scoped publish/subscribe façade. |
+| `Subscription` | `class` | Opaque, idempotently disposable subscription handle. |
+| `PluginEventHandler` | `Callable[[PluginEvent], None \| Awaitable[None]]` | Handler signature accepted by `subscribe`; may be `async def`. |
+| `EventBusPort` | `Protocol` | Narrow, runtime-checkable port listing only the bus methods the SDK calls. The foundation `EventBus` satisfies it structurally, so hosts inject it directly and the SDK never imports `core`. |
+| `PermissionCheck` | `Callable[[PluginPermission], None]` | Gate consulted before publish/subscribe; raises `PluginPermissionError` when denied. |
+
 ### 4.8 Services – `sdk.services`
 
 `PluginServices` is a read-only, typed façade over a host-provided mapping
@@ -211,6 +240,15 @@ Missing services raise `PluginServiceNotAvailableError`; denied services
 raise `PluginPermissionError`. Plugins can also call
 `services.get_optional(type)` for opportunistic lookups.
 
+| Symbol | Type | Description |
+|---|---|---|
+| `PluginServices` | `class` | Read-only, typed service façade (`has`, `keys`, `get`, `get_optional`, `snapshot`). |
+| `ServicePermissionCheck` | `Callable[[type, PluginPermission], None]` | Gate consulted before each resolution; receives the requested service type together with `PluginPermission.SERVICES` and raises `PluginPermissionError` when denied. |
+
+The host controls the whitelist: only service types it places into the
+mapping during context construction are visible, and `snapshot()` returns
+type *names* only — never instances.
+
 ### 4.9 Context – `sdk.context`
 
 `PluginContext` is an immutable dataclass exposing the following fields:
@@ -226,6 +264,7 @@ raise `PluginPermissionError`. Plugins can also call
 | `application_version` | `str` | Host application semver. |
 | `api_version` | `str` | SDK API version implemented by the host. |
 | `metadata_view` | `Mapping[str, Any]` | Informational summary safe to log. |
+| `extensions` | `PluginExtensions \| None` | Extension-point façade; `None` when the host exposes no registrar. |
 
 Hosts create contexts through `PluginContextBuilder`:
 
@@ -236,6 +275,7 @@ context = (
     .with_service(SecretsPort, secrets_service)
     .with_config_storage(FilePluginConfigStorage(config_root))
     .with_resources_root(resources_root)
+    .with_extensions(registrar)
     .with_application_version(settings.version)
     .build()
 )
@@ -243,6 +283,32 @@ context = (
 
 The builder wires permission enforcement automatically based on the
 plugin's declared `PluginPermission` set.
+
+#### Extension points
+
+| Symbol | Type | Description |
+|---|---|---|
+| `PluginExtensions` | `class` | Plugin-facing façade for registering functionality at host-defined extension points. |
+| `ExtensionRegistrar` | `Callable[[str, Any], None]` | Host-supplied registration callable injected through `PluginContextBuilder.with_extensions`. |
+
+The set of extension points is **host-defined**; a plugin addresses a point
+by name (for example `"tools"`, `"ui"`, `"commands"`, `"workflows"`):
+
+```python
+context.extensions.register("tools", MyTool())
+```
+
+Contract:
+
+* Registration is **strictly additive** — it never alters an existing API
+  signature or contract.
+* `register` raises `PluginSDKError` when the host supplied no registrar,
+  `ValueError` for an undefined extension point, and `TypeError` for an
+  extension without a usable identifier. The SDK passes the host's
+  `ValueError`/`TypeError` through unchanged so plugin authors need no
+  framework-internal imports.
+* `PluginContext.extensions` is `None` when the host exposes no registrar;
+  plugins that use extension points must handle that case.
 
 ### 4.10 Plugin base classes and lifecycle – `sdk.plugin`
 
@@ -469,10 +535,14 @@ through `runtime.shutdown` at application shutdown.
 
 The SDK ships with two independent semantic version tracks:
 
-| Track | Constant | Governs |
-|---|---|---|
-| SDK release | `SDK_VERSION` | The SDK package version. Aligned with the JOCHEN X application version. |
-| Plugin API | `SDK_API_VERSION` | Backwards-compatibility surface for plugins. |
+| Track | Constant | Current value | Governs |
+|---|---|---|---|
+| SDK release | `SDK_VERSION` | `0.9.0` | The SDK package version. Aligned with the JOCHEN X application version (`pyproject.toml` → `project.version`). |
+| Plugin API | `SDK_API_VERSION` | `1.0.0` | Backwards-compatibility surface for plugins. |
+
+The two tracks move independently: the SDK release version has advanced to
+`0.9.0` while the plugin API contract has remained at `1.0.0` — every change
+since the first `1.0.0` API has been additive.
 
 **Compatibility rules:**
 
@@ -510,21 +580,26 @@ Every SDK subsystem is independently testable:
 | Plugin lifecycle | `tests/test_sdk.py` | All hooks; failure paths; observer callbacks. |
 | BackgroundPlugin | `tests/test_sdk.py` | Real worker thread; cooperative stop. |
 | Tool/Workflow | `tests/test_sdk.py` | Public method invocation with typed payloads. |
+| Extension points | `tests/test_host_services_extensions.py` | Registrar injection; undefined point and missing-registrar cases. |
+| Documentation currency | `tests/test_documentation_currency.py` | Every `sdk.__all__` symbol is documented; version constants match the prose. |
 
 The SDK never requires a Qt event loop for unit tests, but `UIPlugin` is
 verified by consumers who inject their own widget factory.
 
 ---
 
-## 14. Definition of Done – v0.7.1
+## 14. Definition of Done – v0.9.0
 
 - [x] All plugin base classes are shipped with clearly defined lifecycles.
 - [x] Manifest models cover every required field with validation.
 - [x] `PluginContext` exposes only SDK-defined façades.
 - [x] Event, service, logging, configuration, and resource APIs are all
       exposed exclusively through the SDK.
+- [x] Extension points are exposed through `PluginExtensions` and are
+      strictly additive.
 - [x] SDK exceptions form a shallow, publicly documented hierarchy.
-- [x] `docs/sdk.md` documents the entire SDK.
+- [x] `docs/sdk.md` documents **every** symbol in `sdk.__all__`.
+- [x] The documented version constants match `sdk/version.py`.
 - [x] `ADR-010` records the SDK architecture decision.
 - [x] Comprehensive unit tests exist for every SDK subsystem.
 - [x] No existing foundation module was modified.

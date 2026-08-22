@@ -1,13 +1,15 @@
-# Plugin Framework – Specification v0.7.0
+# Plugin Framework – Specification v0.9.0
 
 The Plugin Framework defines how JOCHEN X discovers, validates, registers, and
-exposes plugins without ever importing or executing plugin code at the foundation
-level. The framework follows a **manifest-only** design: plugins declare their
-metadata in a `plugin.toml` file and the foundation treats them as inert data
-throughout their lifecycle.
+exposes plugins. The framework follows a **manifest-only** design: plugins
+declare their metadata in a `plugin.toml` file, and throughout discovery and
+security validation the foundation works on that metadata alone — no plugin
+module is imported and no plugin code runs. Plugin code is reached only after
+admission: `PluginActivationStage` imports the module of each admitted plugin,
+instantiates its `Plugin` class, and starts it (§2.3).
 
 This document is the authoritative specification for all plugin-related
-architecture in JOCHEN X v0.7.0. It consolidates the requirements, architecture,
+architecture in JOCHEN X v0.9.0. It consolidates the requirements, architecture,
 design, API surface, and testability contracts for the Plugin Framework into a
 single source of truth.
 
@@ -45,7 +47,7 @@ the existing JOCHEN X architecture:
 | Principle | Application |
 |---|---|
 | **Plugin-First** | Every feature beyond the foundation is extensible through plugin protocols. |
-| **Manifest-Only Discovery** | Plugins are discovered via `plugin.toml` manifests; plugin code is never imported by the foundation. |
+| **Manifest-Only Discovery** | Plugins are discovered via `plugin.toml` manifests; no plugin code is imported during discovery or security validation. Import and start are confined to `PluginActivationStage` (§2.3). |
 | **Inert Extensions** | Extension protocols define contracts; the foundation never instantiates extension implementations. |
 | **Zero Trust** | No plugin is admitted without explicit trust validation via `PluginSecurity`. |
 | **Least Privilege** | Plugins declare required capabilities; the foundation grants only what is explicitly permitted. |
@@ -79,7 +81,7 @@ the existing JOCHEN X architecture:
 │  - PluginCatalog                                        │
 │  - PluginLoader                                         │
 ├─────────────────────────────────────────────────────────┤
-│  app/bootstrap.py            Application Layer          │
+│  app/bootstrap/stages_plugin.py    Application Layer    │
 │  - PluginDiscoveryStage                                 │
 ├─────────────────────────────────────────────────────────┤
 │  app/security/plugin_security.py   Application Layer    │
@@ -129,16 +131,21 @@ Developer Layer  →  Application Layer  →  Core Layer
 ### 2.3 Core Boundary Rule
 
 Per [ADR-001](adr/001-core-boundaries.md), plugins and extensions remain outside
-the core startup path. The foundation discovers plugin metadata and registers it
-in the `ServiceRegistry`, but it never:
+the core startup path. Discovery and trust validation operate on metadata only:
+`PluginLoader` reads only TOML files and produces immutable `PluginManifest`
+value objects. Neither `PluginDiscoveryStage` (`LOAD_PLUGINS`) nor
+`PluginSecurityStage` (`LOAD_PLUGINS`) imports a plugin module, instantiates a
+plugin class, or executes plugin code.
 
-- imports plugin Python modules,
-- instantiates plugin classes,
-- executes plugin code, or
-- adds plugins to the `LifecycleManager`.
+Plugin code is imported and executed at exactly one place:
+`PluginActivationStage` (`FINALIZE`, `app/bootstrap/stages_plugin.py`). It runs
+only for manifests admitted by the preceding pipeline stages and, per plugin,
+imports the module, selects the concrete `Plugin` subclass, instantiates it, and
+drives it through `sdk.plugin.PluginRuntime` (`initialize`, `start`).
 
-This boundary is enforced structurally: `PluginLoader` reads only TOML files and
-produces immutable `PluginManifest` value objects.
+The core boundary itself is unaffected: activated plugins are held in a
+`PluginRuntimePool` registered in the `ServiceRegistry` and are never added to
+the `LifecycleManager`.
 
 ---
 
@@ -148,28 +155,67 @@ produces immutable `PluginManifest` value objects.
 
 **Module:** `plugins.loader.PluginManifest`
 
-The manifest is an immutable, frozen dataclass representing the parsed and
-validated metadata from a single `plugin.toml` file.
+The manifest is an immutable, frozen dataclass (`slots=True`) representing the
+parsed metadata of a single `plugin.toml` file. Three fields are mandatory; the
+remaining six are optional v2 fields with safe defaults, so a legacy v1 manifest
+still parses unchanged.
 
 **Fields:**
 
-| Field | Type | Source (`plugin.toml` key) | Description |
-|---|---|---|---|
-| `identifier` | `str` | `id` | Unique, stable plugin identifier. |
-| `version` | `Version` | `version` | Semantic version of the plugin (`major.minor.patch`). |
-| `required_application_version` | `Version` | `requires_application` | Minimum compatible application version. |
+| Field | Type | Source key | Mandatory | Default |
+|---|---|---|---|---|
+| `identifier` | `str` | `id` | yes | — |
+| `version` | `Version` | `version` | yes | — |
+| `required_application_version` | `Version` | `requires_application` | yes | — |
+| `api_version` | `Version \| None` | `api_version` | no | `None` |
+| `category` | `str` | `category` | no | `"general"` |
+| `entry_point` | `str` | `entry_point` | no | `""` |
+| `metadata` | `dict[str, str]` | `[metadata]` table | no | `{}` |
+| `permissions` | `tuple[str, ...]` | `[permissions] capabilities` | no | `()` |
+| `dependencies` | `tuple[dict[str, str], ...]` | `[dependencies] requires` | no | `()` |
 
 **Invariants:**
 
-- All fields are required; a manifest with missing fields raises `KeyError`
-  during TOML parsing.
-- The `identifier` is derived from `str(data["id"])`.
-- Both version fields are parsed via `Version.parse()`, which enforces the
-  exact `major.minor.patch` format.
-- The manifest is a frozen dataclass with `slots=True` for immutability and
-  memory efficiency.
+- Only `id`, `version` and `requires_application` are mandatory; a manifest
+  missing one of them raises `KeyError` during TOML parsing.
+- Both version fields — and `api_version` when present — are parsed via
+  `Version.parse()`, which enforces the exact `major.minor.patch` format and
+  raises `ValueError` otherwise.
+- Unknown keys are ignored, so a manifest written against a later schema still
+  parses.
+- `permissions` carries the capability list evaluated at the `PERMISSION` stage
+  ([ADR-006](adr/006-plugin-permission-model.md)); `dependencies` carries the
+  `{id, version}` entries resolved at the `DEPENDENCY_RESOLUTION` stage
+  ([ADR-007](adr/007-plugin-dependency-resolution.md)).
+- The manifest stays inert data: parsing imports no plugin code.
 
-**Manifest file schema** (`plugin.toml`):
+**Manifest file schema — v2**, with every key nested under a `[plugin]` table:
+
+```toml
+[plugin]
+id = "com.example.full-plugin"
+version = "2.1.0"
+requires_application = "0.8.0"
+api_version = "1.0.0"
+category = "tool"
+entry_point = "main"
+
+[plugin.metadata]
+display_name = "Full Plugin"
+author = "Test Author"
+
+[plugin.permissions]
+capabilities = ["filesystem", "network"]
+
+[plugin.dependencies]
+requires = [
+    { id = "core-services", version = ">=1.0.0" },
+    { id = "helper-lib", version = ">=0.5.0" },
+]
+```
+
+**Manifest file schema — v1**, the three mandatory keys at top level, still
+accepted unchanged:
 
 ```toml
 id = "com.example.my-plugin"
@@ -177,14 +223,8 @@ version = "1.0.0"
 requires_application = "0.7.0"
 ```
 
-All three keys are mandatory. The file must be valid TOML and is parsed with
-Python's `tomllib` (standard library, Python 3.11+).
-
-> **OPEN ARCHITECTURE DECISION:** The manifest schema currently supports only
-> three fields. Additional fields (description, author, permissions,
-> dependencies, entry point, capabilities) are anticipated but not yet
-> specified. See [ADR-006](adr/006-plugin-permission-model.md) and
-> [ADR-007](adr/007-plugin-dependency-resolution.md).
+The file must be valid TOML and is parsed with Python's `tomllib` (standard
+library, Python 3.11+).
 
 ### 3.2 Plugin Loader (Discovery)
 
@@ -432,14 +472,14 @@ because its `discover()` method returns `tuple[PluginManifest, ...]`, which is
 | `identifier` | `str` | `PluginManifest.identifier` | Plugin identifier. |
 | `version` | `str` | `PluginManifest.version` | Plugin version string. |
 | `api_version` | `str` | `PluginManifest.required_application_version` | Required application version. |
-| `enabled` | `bool` | Hardcoded `True` | Whether the plugin is active. |
+| `enabled` | `bool` | Activation outcome from the `PluginRuntimeDiagnostics` port; `True` when no activation information is available | Whether the plugin is active. |
 | `signature_status` | `str` | Hardcoded `"unverified"` | Integrity verification status. |
 | `permissions` | `tuple[str, ...]` | Hardcoded `()` | Declared plugin permissions. |
 | `dependencies` | `tuple[str, ...]` | Hardcoded `()` | Declared plugin dependencies. |
 
 > **Note:** The fields `signature_status`, `permissions`, and `dependencies` are
 > structural placeholders for future capabilities. They are not backed by
-> manifest data in v0.7.0. See [ADR-005](adr/005-plugin-integrity-validation.md),
+> manifest data. See [ADR-005](adr/005-plugin-integrity-validation.md),
 > [ADR-006](adr/006-plugin-permission-model.md), and
 > [ADR-007](adr/007-plugin-dependency-resolution.md).
 
@@ -449,7 +489,7 @@ because its `discover()` method returns `tuple[PluginManifest, ...]`, which is
 
 ### 4.1 Plugin Lifecycle States
 
-In v0.7.0, a plugin transitions through the following states during the
+A plugin transitions through the following states during the
 application bootstrap:
 
 ```
@@ -496,8 +536,9 @@ The plugin lifecycle is driven by the `StartupSequence`, which advances the
 | 1 | `STARTING → INITIALIZING` | `INITIALIZE` | Infrastructure created (registry, events, versions) |
 | 2 | `INITIALIZING → LOADING_PLUGINS` | `LOAD_PLUGINS` | `PluginDiscoveryStage` executes |
 | 3 | `LOADING_PLUGINS → LOADING_RESOURCES` | `LOAD_RESOURCES` | No plugin activity |
-| 4 | — | `FINALIZE` | Developer tools (if enabled) access `PluginDiagnostics` |
-| 5 | `→ READY` | — | Application ready, plugin catalog frozen |
+| 4 | — | `FINALIZE` | `PluginActivationStage` imports, wires, and starts the admitted plugins |
+| 5 | — | `FINALIZE` | `DeveloperToolsStage` (if enabled) accesses `PluginDiagnostics`; `DependencyInjectionStage` validates the container |
+| 6 | `→ READY` | — | Application ready, plugin catalog frozen |
 
 ### 4.3 Event Timeline
 
@@ -531,7 +572,13 @@ Defined in `app.events`:
 |---|---|---|
 | `PluginLoading` | `application.plugin.loading` | `{"identifier": str}` |
 | `PluginLoaded` | `application.plugin.loaded` | `{"identifier": str, "version": str}` |
+| `PluginActivating` | `application.plugin.activating` | `{"identifier": str}` |
+| `PluginActivated` | `application.plugin.activated` | `{"identifier": str, "version": str}` |
 | `PluginFailed` | `application.plugin.failed` | `{"identifier": str, "reason": str}` |
+
+`PluginLoading` and `PluginLoaded` are published per discovered manifest by
+`PluginDiscoveryStage`; `PluginActivating` and `PluginActivated` bracket the
+import and start of each plugin in `PluginActivationStage`.
 
 ### 5.2 Security Events
 
@@ -594,7 +641,7 @@ plugins.
 - **Malformed manifest:** Individual malformed manifests cause `discover()` to
   fail. This is a known limitation; see the note below.
 
-> **Note:** In v0.7.0, a single malformed manifest file causes the entire
+> **Note:** A single malformed manifest file causes the entire
 > discovery to fail because exceptions from TOML parsing or `Version.parse()`
 > propagate uncaught from the loop in `PluginLoader.discover()`. This means one
 > invalid `plugin.toml` prevents all plugins from loading. This is documented
@@ -607,19 +654,26 @@ plugins.
 
 ### 7.1 Service Registration
 
-The Plugin Framework registers two services during bootstrap:
+The plugin pipeline registers eight distinct service keys during bootstrap, all
+as singleton instances. `PluginCatalog` is registered twice — the discovery
+snapshot is replaced by the admitted set — so nine registration calls occur:
 
 | Service Key | Provider | Lifetime | Registered By |
 |---|---|---|---|
 | `PluginLoader` | Instance | Singleton | `PluginDiscoveryStage` |
 | `PluginCatalog` | Instance | Singleton | `PluginDiscoveryStage` |
+| `PluginSecurity` | Instance | Singleton | `PluginSecurityStage` |
+| `PluginCatalog` (replaced) | Instance | Singleton | `PluginSecurityStage` |
+| `PluginRuntimePool` | Instance | Singleton | `PluginActivationStage` |
+| `ActivationFailurePool` | Instance | Singleton | `PluginActivationStage` |
+| `PluginDiagnosticsReport` | Instance | Singleton | `PluginActivationStage` |
+| `HealthCheckRegistry` | Instance | Singleton | `PluginActivationStage` |
+| `MetricsRegistry` | Instance | Singleton | `PluginActivationStage` |
 
-The `PluginSecurity` service is registered separately by the
-`SecurityBootstrapStage` as part of the `SecurityManager` composition:
-
-| Service Key | Provider | Lifetime | Registered By |
-|---|---|---|---|
-| `PluginSecurity` | Instance | Singleton | `SecurityBootstrapStage` |
+`PluginSecurityStage` registers `PluginSecurity` itself unless an earlier stage
+already supplied one. The opt-in `SecurityBootstrapStage` is **not** part of
+`default_stages()`; it runs in the `FINALIZE` phase — after `PluginSecurityStage`
+— and replaces the registration as part of the `SecurityManager` composition.
 
 ### 7.2 ApplicationContext Integration
 
@@ -719,18 +773,42 @@ Pre-release and build metadata identifiers are not supported.
 
 ## 10. Diagnostics, Monitoring, and Health
 
-### 10.1 Plugin Diagnostics Port
+### 10.1 Plugin Diagnostics Ports
 
-The `PluginDiagnostics` protocol (see [Diagnostics](diagnostics.md)) is consumed
-by the optional Developer Platform when `developer_enabled = true`:
+Two ports are defined (see [Diagnostics](diagnostics.md)); both are consumed by
+the optional Developer Platform when `developer_enabled = true`:
 
 ```python
 class PluginDiagnostics(Protocol):
     def discover(self) -> Iterable[object]: ...
+
+class PluginRuntimeDiagnostics(Protocol):
+    def diagnostics(self) -> Iterable[PluginDiagnostic]: ...
 ```
 
-`PluginLoader` structurally satisfies this protocol. The Developer Platform
-calls `discover()` and maps each result to a `PluginStatus` for UI presentation.
+`PluginLoader` structurally satisfies `PluginDiagnostics`; the Developer
+Platform calls `discover()` and maps each result to a `PluginStatus`.
+`PluginDiagnosticsReport` (see 10.4) structurally satisfies
+`PluginRuntimeDiagnostics`.
+
+### 10.1a Runtime Pipeline Rejections
+
+Every stage of the runtime pipeline records a rejection as a structured
+`PipelineRejection` on the bootstrap context rather than only as a log line:
+
+| Field | Meaning |
+|---|---|
+| `identifier` | The rejected plugin. |
+| `stage` | The `PipelineStage` that rejected it. |
+| `criterion` | The violated admission criterion. |
+| `pipeline_reference` | The stage's `PL-01`..`PL-05` reference. |
+| `rejection_code` | Machine-readable `RejectionCode`, when one applies. |
+| `reason` | Human-readable explanation. |
+
+`PipelineStage` names the stages in execution order — `DISCOVERY`,
+`INTEGRITY`, `API_VERSION_GATE`, `PERMISSION`, `DEPENDENCY_RESOLUTION`,
+`ACTIVATION` — and `PIPELINE_STAGE_REFERENCES` maps each to its pipeline
+reference. The order itself is invariant.
 
 ### 10.2 Structured Logging
 
@@ -747,12 +825,43 @@ pattern:
 
 ### 10.3 Health Integration
 
-Plugin health is surfaced through the `ApplicationHost.health()` method, which
-returns `HealthStatus` tuples for key subsystems. Plugin count is displayed in
-the UI status bar via the `StatusBar` widget (`"Plugins: N discovered"`).
+`ApplicationHost.health()` returns `HealthStatus` tuples for the host's own
+subsystems (lifecycle, workers, errors). Plugin count is displayed in the UI
+status bar via the `StatusBar` widget (`"Plugins: N discovered"`).
 
 The `PluginCatalog.count` property provides the canonical plugin count without
 requiring re-discovery.
+
+Plugin-specific health is registered separately: the activation stage creates
+one `PluginHealthCheck` per plugin and registers it on the
+`HealthCheckRegistry`, which is published in the `ServiceRegistry`. Each check
+reads the plugin's **live** lifecycle state, and `HealthCheckRegistry.run()`
+evaluates every registered check through `run_health_checks()`. See
+[Health](health.md).
+
+### 10.4 Retrievable Runtime Diagnostics
+
+After the pipeline has run, the activation stage publishes three registry
+entries that outlive the bootstrap context:
+
+| Registry entry | Content |
+|---|---|
+| `PluginDiagnosticsReport` | Consolidated `PluginDiagnostic` entries for every stage — each with plugin identifier, stage, pipeline reference and outcome (`activated`, `rejected`, `failed`). Queryable via `for_plugin()`, `for_stage()`, `with_outcome()` and `counts()`. |
+| `ActivationFailurePool` | The `ActivationFailure` records of plugins whose activation failed, so the documentation of a failure survives startup. |
+| `PluginRuntimePool` | The activated `PluginRuntime` instances in activation order. |
+
+The diagnostics are therefore available **programmatically**, not only as log
+output. See [Diagnostics](diagnostics.md).
+
+### 10.5 Extensible Metrics
+
+`MetricsRegistry` is the registration point for supplementary metric sources.
+A source implements the `MetricSource` protocol (`collect() -> Mapping[str,
+float]`); `CallableMetricSource` adapts a plain callable and
+`ProcessMetricSource` adapts the existing `PerformanceMonitor`. Collected
+values are published under `"<source>.<metric>"`, and `merge(metrics)` never
+mutates or overrides an existing `Metrics` instance — registration is strictly
+additive. See [Performance](performance.md).
 
 ---
 
@@ -831,7 +940,7 @@ implementation:
 
 ---
 
-## 14. Definition of Done – v0.7.0
+## 14. Definition of Done – v0.9.0
 
 Version 0.7.0 of the Plugin Framework is considered complete when:
 
