@@ -1,0 +1,43 @@
+# JOCHEN X — Zeilenende- und Attributkonvention
+#
+# Zweck: Das Repository speichert Textdateien ausschliesslich mit LF.
+# Ohne diese Datei erzeugen Windows-Editoren CRLF im Arbeitsbaum, was
+# vollstaendige Datei-Diffs ohne inhaltliche Aenderung verursacht und
+# jede Scope- und Diff-Pruefung unbrauchbar macht (Befund F-1).
+#
+# Wirkung: Git normalisiert Textdateien beim Vergleich und beim
+# Hinzufuegen auf LF. Dateiinhalte im Arbeitsbaum werden dadurch nicht
+# veraendert.
+
+* text=auto eol=lf
+
+# Quelltext und Konfiguration
+*.py    text eol=lf diff=python
+*.toml  text eol=lf
+*.md    text eol=lf
+*.sh    text eol=lf
+*.json  text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.cfg   text eol=lf
+*.txt   text eol=lf
+
+# Windows-Skripte benoetigen CRLF
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+
+# Binaerformate: keine Normalisierung, keine Diff-Konvertierung
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.svg   binary
+*.pdf   binary
+*.docx  binary
+*.xlsx  binary
+*.pptx  binary
+*.zip   binary
+*.sqlite3 binary
+*.db    binary
