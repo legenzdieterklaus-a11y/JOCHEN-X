@@ -942,7 +942,7 @@ implementation:
 
 ## 14. Definition of Done – v0.9.0
 
-Version 0.7.0 of the Plugin Framework is considered complete when:
+Version 0.9.0 of the Plugin Framework is considered complete when:
 
 - [x] All components are implemented and documented.
 - [x] All extension protocols are defined and stable.
