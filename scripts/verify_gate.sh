@@ -196,13 +196,16 @@ else
     GIT_OK=1
     report INFO GIT-01 "Branch $(git rev-parse --abbrev-ref HEAD) @ $(git rev-parse --short HEAD)"
 
-    DIRTY=$(git status --porcelain | wc -l | tr -d ' ')
-    MODIFIED=$(git status --porcelain | grep -c '^ M' || true)
-    UNTRACKED=$(git status --porcelain | grep -c '^??' || true)
-    if [ "$DIRTY" -eq 0 ]; then
-        report PASS GIT-02 "Working Tree sauber"
+    # GIT-02 bewertet ausschliesslich den VERSIONIERTEN Bestand: geaenderte,
+    # geloeschte oder umbenannte Dateien, die Git bereits verfolgt. Ein
+    # unversionierter Eintrag ist kein Defekt des versionierten Standes und
+    # wird getrennt in GIT-05 gefuehrt.
+    TRACKED_DIRTY=$(git status --porcelain | grep -v '^??' | wc -l | tr -d ' ')
+    if [ "$TRACKED_DIRTY" -eq 0 ]; then
+        report PASS GIT-02 "versionierter Bestand unveraendert: 0 Abweichungen"
     else
-        report FAIL GIT-02 "Working Tree nicht sauber: $MODIFIED geaendert, $UNTRACKED unversioniert"
+        report FAIL GIT-02 "$TRACKED_DIRTY Abweichung(en) am versionierten Bestand"
+        git status --porcelain | grep -v '^??' | sed 's/^/         /'
     fi
 
     STAGED=$(git diff --cached --name-only | wc -l | tr -d ' ')
@@ -233,6 +236,52 @@ else
         else
             report FAIL SCOPE-01 "geschuetzte Pfade veraendert:$HITS — Human Decision erforderlich"
         fi
+    fi
+
+    # ------------------------------------------------- GIT-05 Ablagekontrolle
+    #
+    # Grundlage ist eine ausdrueckliche Human Decision, nicht der jeweils
+    # vorgefundene Zustand:
+    #
+    #   JX-DEV-SPR07-D3-VERSIONING-SCOPE-HUMAN-DECISION-R0 (2026-08-24),
+    #   Option A: Es werden ausschliesslich die von versionierten Dokumenten
+    #   referenzierten Artefakte und die Werkzeuge unter scripts/** versioniert.
+    #   Nicht referenzierte Arbeits-, Audit- und Zwischenstaende bleiben
+    #   bewusst unversioniert. `.claude/settings.local.json` ist ausdruecklich
+    #   als lokale, umgebungsspezifische Werkzeugkonfiguration ausgeschlossen.
+    #
+    # Daraus folgt die Allowlist unten. Sie ist die technische Umsetzung dieser
+    # Entscheidung — nicht ihre nachtraegliche Rechtfertigung. Ein unversionierter
+    # Eintrag ausserhalb dieser Bereiche ist unerwartet und ergibt FAIL, damit
+    # versehentlich abgelegte Dateien in Code-, Test- oder Skriptpfaden nicht
+    # unbemerkt bleiben.
+
+    is_allowed_untracked() {
+        case "$1" in
+            docs/audits/*|docs/governance/*|docs/rdr/*) return 0 ;;
+            .claude/settings.local.json)                return 0 ;;
+            docs/*/*)                                   return 1 ;;  # tiefere docs-Ebenen: nicht erfasst
+            docs/*.md)                                  return 0 ;;  # nur Dokumente direkt in docs/
+            *)                                          return 1 ;;
+        esac
+    }
+
+    allowed=0
+    unexpected=""
+    for path in $(git status --porcelain --untracked-files=all | grep '^??' | cut -c4-); do
+        if is_allowed_untracked "$path"; then
+            allowed=$((allowed + 1))
+        else
+            unexpected="$unexpected $path"
+        fi
+    done
+    unexpected_count=$(printf '%s\n' $unexpected | grep -c . || true)
+
+    if [ -z "$unexpected" ]; then
+        report INFO GIT-05 "$allowed unversionierte Eintraege, alle in den durch D-3 entschiedenen Ablagebereichen; 0 ausserhalb"
+    else
+        report FAIL GIT-05 "$unexpected_count unversionierte Datei(en) ausserhalb der entschiedenen Ablagebereiche ($allowed innerhalb)"
+        for path in $unexpected; do printf '         %s\n' "$path"; done
     fi
 
     # ------------------------------------------------------------ Zeilenenden
