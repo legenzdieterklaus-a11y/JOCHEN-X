@@ -1,0 +1,368 @@
+{
+  "meta": {
+    "extractor_version": "1.1.0",
+    "note": "meta is diagnostic only and excluded from --check comparison",
+    "python": "3.10.12"
+  },
+  "surface": {
+    "declared_versions": {},
+    "entry_point": "app/bootstrap/__init__.py",
+    "exported": [
+      "BootstrapContext",
+      "BootstrapError",
+      "BootstrapManager",
+      "BootstrapStage",
+      "ConfigurationStage",
+      "DatabaseStage",
+      "DependencyInjectionStage",
+      "DeveloperToolsStage",
+      "EnvironmentStage",
+      "LoggingStage",
+      "PluginActivationStage",
+      "PluginDiscoveryStage",
+      "PluginRuntimePool",
+      "PluginSecurityStage",
+      "RegistryStage",
+      "RejectionCode",
+      "ResourceStage",
+      "SchedulerStage",
+      "StartupPhase",
+      "ThemeStage",
+      "ValidationDiagnostic",
+      "default_stages"
+    ],
+    "exported_count": 22,
+    "package": "app.bootstrap",
+    "schema_version": "1",
+    "symbols": {
+      "BootstrapContext": {
+        "attributes": {
+          "activation_failures": "list[ActivationFailure]",
+          "admitted_manifests": "tuple[PluginManifest, ...]",
+          "configuration": "ConfigurationService | None",
+          "connections": "ConnectionManager | None",
+          "disposables": "DisposableRegistry | None",
+          "environment": "Environment | None",
+          "events": "EventBus | None",
+          "logger": "logging.Logger | None",
+          "manifests": "tuple[PluginManifest, ...]",
+          "metrics": "Metrics | None",
+          "pipeline_rejections": "list[PipelineRejection]",
+          "plugin_runtimes": "tuple[PluginRuntime, ...]",
+          "plugins": "PluginLoader | None",
+          "registry": "ServiceRegistry | None",
+          "resources": "ResourceManager | None",
+          "root": "Path",
+          "scheduler": "TaskScheduler | None",
+          "service_provider": "ServiceProvider | None",
+          "settings": "ApplicationSettings | None",
+          "settings_repository": "SettingsRepository | None",
+          "theme": "ThemeEngine | None",
+          "versions": "VersionManager | None"
+        },
+        "bases": [],
+        "decorators": [
+          "dataclass(slots=True)"
+        ],
+        "kind": "class",
+        "methods": {},
+        "module": "app.bootstrap.types"
+      },
+      "BootstrapError": {
+        "attributes": {},
+        "bases": [
+          "JochenXError"
+        ],
+        "decorators": [],
+        "kind": "class",
+        "methods": {},
+        "module": "app.bootstrap.types"
+      },
+      "BootstrapManager": {
+        "attributes": {
+          "stages": "tuple[BootstrapStage, ...]"
+        },
+        "bases": [],
+        "decorators": [
+          "dataclass(frozen=True, slots=True)"
+        ],
+        "kind": "class",
+        "methods": {
+          "abort": "(self, context: BootstrapContext) -> None",
+          "begin": "(self, root: Path) -> BootstrapContext",
+          "build_context": "(self, context: BootstrapContext, state_machine: ApplicationStateMachine) -> ApplicationContext",
+          "pending_context": "(self) -> BootstrapContext | None",
+          "run_phase": "(self, context: BootstrapContext, phase: StartupPhase) -> None"
+        },
+        "module": "app.bootstrap.manager"
+      },
+      "BootstrapStage": {
+        "attributes": {},
+        "bases": [
+          "Protocol"
+        ],
+        "decorators": [],
+        "kind": "class",
+        "methods": {
+          "execute": "(self, context: BootstrapContext) -> None",
+          "name": "[property] (self) -> str",
+          "phase": "[property] (self) -> StartupPhase"
+        },
+        "module": "app.bootstrap.types"
+      },
+      "ConfigurationStage": {
+        "attributes": {
+          "name": "str",
+          "phase": "StartupPhase"
+        },
+        "bases": [],
+        "decorators": [
+          "dataclass(frozen=True, slots=True)"
+        ],
+        "kind": "class",
+        "methods": {
+          "execute": "(self, context: BootstrapContext) -> None"
+        },
+        "module": "app.bootstrap.stages_init"
+      },
+      "DatabaseStage": {
+        "attributes": {
+          "name": "str",
+          "phase": "StartupPhase"
+        },
+        "bases": [],
+        "decorators": [
+          "dataclass(frozen=True, slots=True)"
+        ],
+        "kind": "class",
+        "methods": {
+          "execute": "(self, context: BootstrapContext) -> None"
+        },
+        "module": "app.bootstrap.stages_init"
+      },
+      "DependencyInjectionStage": {
+        "attributes": {
+          "name": "str",
+          "phase": "StartupPhase"
+        },
+        "bases": [],
+        "decorators": [
+          "dataclass(frozen=True, slots=True)"
+        ],
+        "kind": "class",
+        "methods": {
+          "execute": "(self, context: BootstrapContext) -> None"
+        },
+        "module": "app.bootstrap.stages_late"
+      },
+      "DeveloperToolsStage": {
+        "attributes": {
+          "name": "str",
+          "phase": "StartupPhase"
+        },
+        "bases": [],
+        "decorators": [
+          "dataclass(frozen=True, slots=True)"
+        ],
+        "kind": "class",
+        "methods": {
+          "execute": "(self, context: BootstrapContext) -> None"
+        },
+        "module": "app.bootstrap.stages_late"
+      },
+      "EnvironmentStage": {
+        "attributes": {
+          "name": "str",
+          "phase": "StartupPhase"
+        },
+        "bases": [],
+        "decorators": [
+          "dataclass(frozen=True, slots=True)"
+        ],
+        "kind": "class",
+        "methods": {
+          "execute": "(self, context: BootstrapContext) -> None"
+        },
+        "module": "app.bootstrap.stages_init"
+      },
+      "LoggingStage": {
+        "attributes": {
+          "name": "str",
+          "phase": "StartupPhase"
+        },
+        "bases": [],
+        "decorators": [
+          "dataclass(frozen=True, slots=True)"
+        ],
+        "kind": "class",
+        "methods": {
+          "execute": "(self, context: BootstrapContext) -> None"
+        },
+        "module": "app.bootstrap.stages_init"
+      },
+      "PluginActivationStage": {
+        "attributes": {
+          "name": "str",
+          "phase": "StartupPhase"
+        },
+        "bases": [],
+        "decorators": [
+          "dataclass(frozen=True, slots=True)"
+        ],
+        "kind": "class",
+        "methods": {
+          "execute": "(self, context: BootstrapContext) -> None"
+        },
+        "module": "app.bootstrap.stages_plugin"
+      },
+      "PluginDiscoveryStage": {
+        "attributes": {
+          "name": "str",
+          "phase": "StartupPhase"
+        },
+        "bases": [],
+        "decorators": [
+          "dataclass(frozen=True, slots=True)"
+        ],
+        "kind": "class",
+        "methods": {
+          "execute": "(self, context: BootstrapContext) -> None"
+        },
+        "module": "app.bootstrap.stages_plugin"
+      },
+      "PluginRuntimePool": {
+        "attributes": {
+          "runtimes": "tuple[PluginRuntime, ...]"
+        },
+        "bases": [],
+        "decorators": [
+          "dataclass(frozen=True, slots=True)"
+        ],
+        "kind": "class",
+        "methods": {},
+        "module": "app.bootstrap.stages_plugin"
+      },
+      "PluginSecurityStage": {
+        "attributes": {
+          "name": "str",
+          "phase": "StartupPhase"
+        },
+        "bases": [],
+        "decorators": [
+          "dataclass(frozen=True, slots=True)"
+        ],
+        "kind": "class",
+        "methods": {
+          "execute": "(self, context: BootstrapContext) -> None"
+        },
+        "module": "app.bootstrap.stages_plugin"
+      },
+      "RegistryStage": {
+        "attributes": {
+          "name": "str",
+          "phase": "StartupPhase"
+        },
+        "bases": [],
+        "decorators": [
+          "dataclass(frozen=True, slots=True)"
+        ],
+        "kind": "class",
+        "methods": {
+          "execute": "(self, context: BootstrapContext) -> None"
+        },
+        "module": "app.bootstrap.stages_init"
+      },
+      "RejectionCode": {
+        "attributes": {},
+        "bases": [
+          "StrEnum"
+        ],
+        "decorators": [],
+        "kind": "class",
+        "methods": {},
+        "module": "app.bootstrap.types"
+      },
+      "ResourceStage": {
+        "attributes": {
+          "name": "str",
+          "phase": "StartupPhase"
+        },
+        "bases": [],
+        "decorators": [
+          "dataclass(frozen=True, slots=True)"
+        ],
+        "kind": "class",
+        "methods": {
+          "execute": "(self, context: BootstrapContext) -> None"
+        },
+        "module": "app.bootstrap.stages_late"
+      },
+      "SchedulerStage": {
+        "attributes": {
+          "name": "str",
+          "phase": "StartupPhase"
+        },
+        "bases": [],
+        "decorators": [
+          "dataclass(frozen=True, slots=True)"
+        ],
+        "kind": "class",
+        "methods": {
+          "execute": "(self, context: BootstrapContext) -> None"
+        },
+        "module": "app.bootstrap.stages_init"
+      },
+      "StartupPhase": {
+        "attributes": {},
+        "bases": [
+          "IntEnum"
+        ],
+        "decorators": [],
+        "kind": "class",
+        "methods": {},
+        "module": "app.bootstrap.types"
+      },
+      "ThemeStage": {
+        "attributes": {
+          "name": "str",
+          "phase": "StartupPhase"
+        },
+        "bases": [],
+        "decorators": [
+          "dataclass(frozen=True, slots=True)"
+        ],
+        "kind": "class",
+        "methods": {
+          "execute": "(self, context: BootstrapContext) -> None"
+        },
+        "module": "app.bootstrap.stages_init"
+      },
+      "ValidationDiagnostic": {
+        "attributes": {
+          "accepted": "bool",
+          "api_version_valid": "bool",
+          "dependencies_valid": "bool",
+          "identifier": "str",
+          "permissions_valid": "bool",
+          "reason": "str",
+          "rejection_code": "RejectionCode | None",
+          "schema_valid": "bool"
+        },
+        "bases": [],
+        "decorators": [
+          "dataclass(frozen=True, slots=True)"
+        ],
+        "kind": "class",
+        "methods": {},
+        "module": "app.bootstrap.types"
+      },
+      "default_stages": {
+        "decorators": [],
+        "kind": "function",
+        "module": "app.bootstrap.manager",
+        "signature": "() -> tuple[BootstrapStage, ...]"
+      }
+    },
+    "unresolved": []
+  }
+}

@@ -1,0 +1,650 @@
+{
+  "meta": {
+    "extractor_version": "1.1.0",
+    "note": "meta is diagnostic only and excluded from --check comparison",
+    "python": "3.10.12"
+  },
+  "surface": {
+    "declared_versions": {
+      "SDK_API_VERSION": "1.0.0",
+      "SDK_NAME": "jochen-x-sdk",
+      "SDK_VERSION": "0.9.0"
+    },
+    "entry_point": "sdk/__init__.py",
+    "exported": [
+      "ApiVersion",
+      "BackgroundPlugin",
+      "EventBusPort",
+      "ExtensionRegistrar",
+      "FilePluginConfigStorage",
+      "InMemoryPluginConfigStorage",
+      "PermissionCheck",
+      "Plugin",
+      "PluginCategory",
+      "PluginConfig",
+      "PluginConfigStorage",
+      "PluginConfigurationError",
+      "PluginContext",
+      "PluginContextBuilder",
+      "PluginDependency",
+      "PluginDependencyError",
+      "PluginEvent",
+      "PluginEventBus",
+      "PluginEventError",
+      "PluginEventHandler",
+      "PluginExtensions",
+      "PluginLifecycleError",
+      "PluginLifecycleState",
+      "PluginLogger",
+      "PluginManifestError",
+      "PluginMetadata",
+      "PluginPermission",
+      "PluginPermissionError",
+      "PluginResourceError",
+      "PluginResources",
+      "PluginRuntime",
+      "PluginSDKError",
+      "PluginServiceNotAvailableError",
+      "PluginServices",
+      "SDK_API_VERSION",
+      "SDK_API_VERSION_INFO",
+      "SDK_NAME",
+      "SDK_VERSION",
+      "SDK_VERSION_INFO",
+      "ServicePermissionCheck",
+      "SignatureStatus",
+      "Subscription",
+      "ToolPlugin",
+      "UIPlugin",
+      "Validator",
+      "WorkflowPlugin",
+      "validate_identifier",
+      "validate_semver"
+    ],
+    "exported_count": 48,
+    "package": "sdk",
+    "schema_version": "1",
+    "symbols": {
+      "ApiVersion": {
+        "attributes": {
+          "major": "int",
+          "minor": "int",
+          "patch": "int"
+        },
+        "bases": [],
+        "decorators": [
+          "dataclass(frozen=True, order=True, slots=True)"
+        ],
+        "kind": "class",
+        "methods": {
+          "__str__": "(self) -> str",
+          "is_compatible_with": "(self, required: ApiVersion) -> bool",
+          "parse": "[classmethod] (cls, value: str) -> ApiVersion"
+        },
+        "module": "sdk.version"
+      },
+      "BackgroundPlugin": {
+        "attributes": {},
+        "bases": [
+          "Plugin"
+        ],
+        "decorators": [],
+        "kind": "class",
+        "methods": {
+          "__init__": "(self) -> None",
+          "on_start": "(self) -> None",
+          "on_stop": "(self) -> None",
+          "request_stop": "(self) -> None",
+          "run_background": "[abstractmethod] (self, stop_event: threading.Event) -> None"
+        },
+        "module": "sdk.plugin"
+      },
+      "EventBusPort": {
+        "attributes": {},
+        "bases": [
+          "Protocol"
+        ],
+        "decorators": [
+          "runtime_checkable"
+        ],
+        "kind": "class",
+        "methods": {
+          "publish": "(self, event: Any, *, sticky: bool = False) -> None",
+          "subscribe": "(self, event_name: str, handler: Callable[[Any], Any], *, priority: int = 0, receive_sticky: bool = True) -> Callable[[], None]"
+        },
+        "module": "sdk.events"
+      },
+      "ExtensionRegistrar": {
+        "annotation": null,
+        "kind": "constant",
+        "module": "sdk.context",
+        "value": "Callable[[str, Any], None]"
+      },
+      "FilePluginConfigStorage": {
+        "attributes": {},
+        "bases": [],
+        "decorators": [],
+        "kind": "class",
+        "methods": {
+          "__init__": "(self, root: Path) -> None",
+          "read": "(self, plugin_id: str) -> Mapping[str, Any]",
+          "write": "(self, plugin_id: str, data: Mapping[str, Any]) -> None"
+        },
+        "module": "sdk.config"
+      },
+      "InMemoryPluginConfigStorage": {
+        "attributes": {},
+        "bases": [],
+        "decorators": [],
+        "kind": "class",
+        "methods": {
+          "__init__": "(self) -> None",
+          "read": "(self, plugin_id: str) -> Mapping[str, Any]",
+          "write": "(self, plugin_id: str, data: Mapping[str, Any]) -> None"
+        },
+        "module": "sdk.config"
+      },
+      "PermissionCheck": {
+        "annotation": null,
+        "kind": "constant",
+        "module": "sdk.events",
+        "value": "Callable[[PluginPermission], None]"
+      },
+      "Plugin": {
+        "attributes": {},
+        "bases": [
+          "ABC"
+        ],
+        "decorators": [],
+        "kind": "class",
+        "methods": {
+          "__init__": "(self) -> None",
+          "context": "[property] (self) -> PluginContext",
+          "metadata": "[abstractmethod] (self) -> PluginMetadata",
+          "on_initialize": "(self) -> None",
+          "on_shutdown": "(self) -> None",
+          "on_start": "(self) -> None",
+          "on_stop": "(self) -> None",
+          "state": "[property] (self) -> PluginLifecycleState"
+        },
+        "module": "sdk.plugin"
+      },
+      "PluginCategory": {
+        "attributes": {},
+        "bases": [
+          "StrEnum"
+        ],
+        "decorators": [],
+        "kind": "class",
+        "methods": {},
+        "module": "sdk.manifest"
+      },
+      "PluginConfig": {
+        "attributes": {},
+        "bases": [],
+        "decorators": [],
+        "kind": "class",
+        "methods": {
+          "__init__": "(self, plugin_id: str, storage: PluginConfigStorage, *, defaults: Mapping[str, Any] | None = None, validators: Mapping[str, Validator] | None = None) -> None",
+          "delete": "(self, key: str) -> None",
+          "get": "(self, key: str, default: T | Any = _MISSING) -> Any | T",
+          "has": "(self, key: str) -> bool",
+          "keys": "(self) -> tuple[str, ...]",
+          "keys_with_defaults": "(self) -> Iterable[str]",
+          "load": "(self) -> None",
+          "plugin_id": "[property] (self) -> str",
+          "register_default": "(self, key: str, value: Any) -> None",
+          "register_validator": "(self, key: str, validator: Validator) -> None",
+          "save": "(self) -> None",
+          "set": "(self, key: str, value: Any) -> None",
+          "snapshot": "(self) -> dict[str, Any]",
+          "update": "(self, values: Mapping[str, Any]) -> None"
+        },
+        "module": "sdk.config"
+      },
+      "PluginConfigStorage": {
+        "attributes": {},
+        "bases": [
+          "Protocol"
+        ],
+        "decorators": [
+          "runtime_checkable"
+        ],
+        "kind": "class",
+        "methods": {
+          "read": "(self, plugin_id: str) -> Mapping[str, Any]",
+          "write": "(self, plugin_id: str, data: Mapping[str, Any]) -> None"
+        },
+        "module": "sdk.config"
+      },
+      "PluginConfigurationError": {
+        "attributes": {},
+        "bases": [
+          "PluginSDKError"
+        ],
+        "decorators": [],
+        "kind": "class",
+        "methods": {},
+        "module": "sdk.errors"
+      },
+      "PluginContext": {
+        "attributes": {
+          "api_version": "str",
+          "application_version": "str",
+          "config": "PluginConfig",
+          "events": "PluginEventBus",
+          "extensions": "PluginExtensions | None",
+          "logger": "PluginLogger",
+          "metadata": "PluginMetadata",
+          "metadata_view": "Mapping[str, Any]",
+          "resources": "PluginResources",
+          "services": "PluginServices"
+        },
+        "bases": [],
+        "decorators": [
+          "dataclass(frozen=True, slots=True)"
+        ],
+        "kind": "class",
+        "methods": {},
+        "module": "sdk.context"
+      },
+      "PluginContextBuilder": {
+        "attributes": {},
+        "bases": [],
+        "decorators": [],
+        "kind": "class",
+        "methods": {
+          "__init__": "(self, metadata: PluginMetadata) -> None",
+          "build": "(self) -> PluginContext",
+          "with_api_version": "(self, api_version: str) -> PluginContextBuilder",
+          "with_application_version": "(self, version: str) -> PluginContextBuilder",
+          "with_config_defaults": "(self, defaults: Mapping[str, Any]) -> PluginContextBuilder",
+          "with_config_storage": "(self, storage: PluginConfigStorage) -> PluginContextBuilder",
+          "with_config_validators": "(self, validators: Mapping[str, Callable[[Any], None]]) -> PluginContextBuilder",
+          "with_event_bus": "(self, bus: EventBusPort, *, event_type: type) -> PluginContextBuilder",
+          "with_extensions": "(self, registrar: ExtensionRegistrar) -> PluginContextBuilder",
+          "with_logger": "(self, logger: logging.Logger) -> PluginContextBuilder",
+          "with_metadata_view": "(self, view: Mapping[str, Any]) -> PluginContextBuilder",
+          "with_resources_root": "(self, root: Path) -> PluginContextBuilder",
+          "with_service": "(self, service_type: type, instance: Any) -> PluginContextBuilder",
+          "with_services": "(self, services: Mapping[type, Any]) -> PluginContextBuilder"
+        },
+        "module": "sdk.context"
+      },
+      "PluginDependency": {
+        "attributes": {
+          "identifier": "str",
+          "minimum_version": "str"
+        },
+        "bases": [],
+        "decorators": [
+          "dataclass(frozen=True, slots=True)"
+        ],
+        "kind": "class",
+        "methods": {
+          "__post_init__": "(self) -> None"
+        },
+        "module": "sdk.manifest"
+      },
+      "PluginDependencyError": {
+        "attributes": {},
+        "bases": [
+          "PluginSDKError"
+        ],
+        "decorators": [],
+        "kind": "class",
+        "methods": {},
+        "module": "sdk.errors"
+      },
+      "PluginEvent": {
+        "attributes": {
+          "name": "str",
+          "payload": "dict[str, Any]"
+        },
+        "bases": [],
+        "decorators": [
+          "dataclass(frozen=True, slots=True)"
+        ],
+        "kind": "class",
+        "methods": {},
+        "module": "sdk.events"
+      },
+      "PluginEventBus": {
+        "attributes": {},
+        "bases": [],
+        "decorators": [],
+        "kind": "class",
+        "methods": {
+          "__init__": "(self, plugin_id: str, bus: EventBusPort, *, event_type: type, permission_check: PermissionCheck | None = None) -> None",
+          "active_subscriptions": "(self) -> tuple[Subscription, ...]",
+          "dispose": "(self) -> None",
+          "plugin_id": "[property] (self) -> str",
+          "publish": "(self, event_name: str, payload: dict[str, Any] | None = None, *, sticky: bool = False) -> None",
+          "subscribe": "(self, event_name: str, handler: PluginEventHandler, *, priority: int = 0, receive_sticky: bool = True) -> Subscription",
+          "unsubscribe": "(self, subscription: Subscription) -> None"
+        },
+        "module": "sdk.events"
+      },
+      "PluginEventError": {
+        "attributes": {},
+        "bases": [
+          "PluginSDKError"
+        ],
+        "decorators": [],
+        "kind": "class",
+        "methods": {},
+        "module": "sdk.errors"
+      },
+      "PluginEventHandler": {
+        "annotation": null,
+        "kind": "constant",
+        "module": "sdk.events",
+        "value": "Callable[[PluginEvent], None | Awaitable[None]]"
+      },
+      "PluginExtensions": {
+        "attributes": {},
+        "bases": [],
+        "decorators": [],
+        "kind": "class",
+        "methods": {
+          "__init__": "(self, plugin_id: str, registrar: ExtensionRegistrar | None = None) -> None",
+          "register": "(self, point: str, extension: Any) -> None"
+        },
+        "module": "sdk.context"
+      },
+      "PluginLifecycleError": {
+        "attributes": {},
+        "bases": [
+          "PluginSDKError"
+        ],
+        "decorators": [],
+        "kind": "class",
+        "methods": {},
+        "module": "sdk.errors"
+      },
+      "PluginLifecycleState": {
+        "attributes": {},
+        "bases": [
+          "StrEnum"
+        ],
+        "decorators": [],
+        "kind": "class",
+        "methods": {},
+        "module": "sdk.plugin"
+      },
+      "PluginLogger": {
+        "attributes": {},
+        "bases": [],
+        "decorators": [],
+        "kind": "class",
+        "methods": {
+          "__init__": "(self, plugin_id: str, *, base_logger: logging.Logger | None = None, namespace: str = \"sdk.plugins\") -> None",
+          "critical": "(self, message: str, *, exc: BaseException | None = None, **context: Any) -> None",
+          "debug": "(self, message: str, **context: Any) -> None",
+          "error": "(self, message: str, *, exc: BaseException | None = None, **context: Any) -> None",
+          "exception": "(self, message: str, **context: Any) -> None",
+          "info": "(self, message: str, **context: Any) -> None",
+          "log": "(self, level: int, message: str, **context: Any) -> None",
+          "plugin_id": "[property] (self) -> str",
+          "underlying": "[property] (self) -> logging.Logger",
+          "warning": "(self, message: str, **context: Any) -> None"
+        },
+        "module": "sdk.logging"
+      },
+      "PluginManifestError": {
+        "attributes": {},
+        "bases": [
+          "PluginSDKError"
+        ],
+        "decorators": [],
+        "kind": "class",
+        "methods": {},
+        "module": "sdk.errors"
+      },
+      "PluginMetadata": {
+        "attributes": {
+          "api_version": "str",
+          "author": "str",
+          "category": "PluginCategory",
+          "dependencies": "tuple[PluginDependency, ...]",
+          "description": "str",
+          "entry_point": "str",
+          "identifier": "str",
+          "minimum_application_version": "str",
+          "name": "str",
+          "permissions": "frozenset[PluginPermission]",
+          "signature_status": "SignatureStatus",
+          "version": "str"
+        },
+        "bases": [],
+        "decorators": [
+          "dataclass(frozen=True, slots=True)"
+        ],
+        "kind": "class",
+        "methods": {
+          "__post_init__": "(self) -> None",
+          "from_loader_manifest": "[classmethod] (cls, loader_manifest: Any, *, name: str = \"\", author: str = \"\", description: str = \"\", api_version: str = \"\", category: PluginCategory = PluginCategory.GENERAL) -> PluginMetadata",
+          "from_mapping": "[classmethod] (cls, data: Mapping[str, Any]) -> PluginMetadata",
+          "has_permission": "(self, permission: PluginPermission) -> bool",
+          "to_dict": "(self) -> dict[str, Any]"
+        },
+        "module": "sdk.manifest"
+      },
+      "PluginPermission": {
+        "attributes": {},
+        "bases": [
+          "StrEnum"
+        ],
+        "decorators": [],
+        "kind": "class",
+        "methods": {},
+        "module": "sdk.manifest"
+      },
+      "PluginPermissionError": {
+        "attributes": {},
+        "bases": [
+          "PluginSDKError"
+        ],
+        "decorators": [],
+        "kind": "class",
+        "methods": {},
+        "module": "sdk.errors"
+      },
+      "PluginResourceError": {
+        "attributes": {},
+        "bases": [
+          "PluginSDKError"
+        ],
+        "decorators": [],
+        "kind": "class",
+        "methods": {},
+        "module": "sdk.errors"
+      },
+      "PluginResources": {
+        "attributes": {},
+        "bases": [],
+        "decorators": [],
+        "kind": "class",
+        "methods": {
+          "__init__": "(self, root: Path) -> None",
+          "asset": "(self, name: str) -> Path",
+          "exists": "(self, *parts: str) -> bool",
+          "icon": "(self, name: str) -> Path",
+          "load_translation": "(self, locale: str) -> Mapping[str, str]",
+          "path": "(self, *parts: str) -> Path",
+          "read_bytes": "(self, *parts: str) -> bytes",
+          "read_text": "(self, *parts: str, encoding: str = \"utf-8\") -> str",
+          "root": "[property] (self) -> Path",
+          "translation": "(self, locale: str) -> Path"
+        },
+        "module": "sdk.resources"
+      },
+      "PluginRuntime": {
+        "attributes": {},
+        "bases": [],
+        "decorators": [],
+        "kind": "class",
+        "methods": {
+          "__init__": "(self, plugin: Plugin, *, on_state_change: Callable[[Plugin, PluginLifecycleState], None] | None = None) -> None",
+          "initialize": "(self, context: PluginContext) -> None",
+          "plugin": "[property] (self) -> Plugin",
+          "shutdown": "(self) -> None",
+          "start": "(self) -> None",
+          "state": "[property] (self) -> PluginLifecycleState",
+          "stop": "(self) -> None"
+        },
+        "module": "sdk.plugin"
+      },
+      "PluginSDKError": {
+        "attributes": {},
+        "bases": [
+          "Exception"
+        ],
+        "decorators": [],
+        "kind": "class",
+        "methods": {},
+        "module": "sdk.errors"
+      },
+      "PluginServiceNotAvailableError": {
+        "attributes": {},
+        "bases": [
+          "PluginSDKError"
+        ],
+        "decorators": [],
+        "kind": "class",
+        "methods": {},
+        "module": "sdk.errors"
+      },
+      "PluginServices": {
+        "attributes": {},
+        "bases": [],
+        "decorators": [],
+        "kind": "class",
+        "methods": {
+          "__init__": "(self, services: Mapping[type, Any] | None = None, *, permission_check: ServicePermissionCheck | None = None) -> None",
+          "get": "(self, service_type: type[T]) -> T",
+          "get_optional": "(self, service_type: type[T]) -> T | None",
+          "has": "(self, service_type: type) -> bool",
+          "keys": "(self) -> tuple[type, ...]",
+          "snapshot": "(self) -> dict[str, str]"
+        },
+        "module": "sdk.services"
+      },
+      "SDK_API_VERSION": {
+        "annotation": "str",
+        "kind": "constant",
+        "module": "sdk.version",
+        "value": "\"1.0.0\""
+      },
+      "SDK_API_VERSION_INFO": {
+        "annotation": "ApiVersion",
+        "kind": "constant",
+        "module": "sdk.version",
+        "value": "ApiVersion.parse(SDK_API_VERSION)"
+      },
+      "SDK_NAME": {
+        "annotation": "str",
+        "kind": "constant",
+        "module": "sdk.version",
+        "value": "\"jochen-x-sdk\""
+      },
+      "SDK_VERSION": {
+        "annotation": "str",
+        "kind": "constant",
+        "module": "sdk.version",
+        "value": "\"0.9.0\""
+      },
+      "SDK_VERSION_INFO": {
+        "annotation": "ApiVersion",
+        "kind": "constant",
+        "module": "sdk.version",
+        "value": "ApiVersion.parse(SDK_VERSION)"
+      },
+      "ServicePermissionCheck": {
+        "annotation": null,
+        "kind": "constant",
+        "module": "sdk.services",
+        "value": "Callable[[type, PluginPermission], None]"
+      },
+      "SignatureStatus": {
+        "attributes": {},
+        "bases": [
+          "StrEnum"
+        ],
+        "decorators": [],
+        "kind": "class",
+        "methods": {},
+        "module": "sdk.manifest"
+      },
+      "Subscription": {
+        "attributes": {},
+        "bases": [],
+        "decorators": [],
+        "kind": "class",
+        "methods": {
+          "__init__": "(self, event_name: str, dispose: Callable[[], None]) -> None",
+          "event_name": "[property] (self) -> str",
+          "is_active": "[property] (self) -> bool",
+          "unsubscribe": "(self) -> None"
+        },
+        "module": "sdk.events"
+      },
+      "ToolPlugin": {
+        "attributes": {},
+        "bases": [
+          "Plugin"
+        ],
+        "decorators": [],
+        "kind": "class",
+        "methods": {
+          "execute": "[abstractmethod] (self, request: Mapping[str, Any]) -> Mapping[str, Any]"
+        },
+        "module": "sdk.plugin"
+      },
+      "UIPlugin": {
+        "attributes": {},
+        "bases": [
+          "Plugin"
+        ],
+        "decorators": [],
+        "kind": "class",
+        "methods": {
+          "create_widget": "[abstractmethod] (self, parent: QWidget | None = None) -> QWidget"
+        },
+        "module": "sdk.plugin"
+      },
+      "Validator": {
+        "annotation": null,
+        "kind": "constant",
+        "module": "sdk.config",
+        "value": "Callable[[Any], None]"
+      },
+      "WorkflowPlugin": {
+        "attributes": {},
+        "bases": [
+          "Plugin"
+        ],
+        "decorators": [],
+        "kind": "class",
+        "methods": {
+          "run": "[abstractmethod] (self, workflow: str, arguments: Mapping[str, Any]) -> Mapping[str, Any]",
+          "workflows": "[abstractmethod] (self) -> tuple[str, ...]"
+        },
+        "module": "sdk.plugin"
+      },
+      "validate_identifier": {
+        "decorators": [],
+        "kind": "function",
+        "module": "sdk.manifest",
+        "signature": "(value: str) -> str"
+      },
+      "validate_semver": {
+        "decorators": [],
+        "kind": "function",
+        "module": "sdk.manifest",
+        "signature": "(value: str, *, field_name: str = \"version\") -> str"
+      }
+    },
+    "unresolved": []
+  }
+}
