@@ -70,11 +70,11 @@ Abh채ngigkeiten zeigen immer nach innen. Keine Schicht importiert aus einer 채u�
 - Events 체ber `core.events.EventBus` mit typed Application Events
 - Alle Architekturentscheidungen stehen in `docs/adr/`
 
-### Offene ADRs
+### Genehmigte ADRs (Milestone 0.9)
 
-- ADR-005: Plugin-Integrity-Validation (Signaturpr체fung)
-- ADR-006: Plugin-Permission-Model (Capability-Grants)
-- ADR-007: Plugin-Dependency-Resolution (Inter-Plugin-Abh채ngigkeiten)
+- ADR-005: Plugin-Integrity-Validation (APPROVED)
+- ADR-006: Plugin-Permission-Model (APPROVED)
+- ADR-007: Plugin-Dependency-Resolution (APPROVED)
 
 ## Arbeitsregeln
 

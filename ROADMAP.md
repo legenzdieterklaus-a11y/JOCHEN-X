@@ -105,17 +105,16 @@ Enterprise Plugin SDK (`sdk/`): Plugin-Basisklassen (`Plugin`, `BackgroundPlugin
 
 | | |
 |---|---|
-| **Status** | 🚧 in Arbeit |
+| **Status** | ✅ abgeschlossen |
 | **Abhängigkeiten** | Paket 4, 3B |
 
 Verbindung des Plugin SDK mit dem Host-Bootstrap. `PluginSecurityStage` (Sicherheitsprüfung vor Code-Import), `PluginActivationStage` (Import, Instanziierung, Context-Wiring, Start), Shutdown-Integration.
 
 **Fertigstellungskriterien:**
-- ADR-011 implementiert (aktuell nur dokumentiert)
+- ADR-011 implementiert
 - `PluginSecurityStage` filtert Manifeste vor Aktivierung
 - `PluginActivationStage` erzeugt `PluginRuntime`-Instanzen
 - Reverse-Order-Shutdown über `ApplicationHost`
-- Erweitertes `plugin.toml`-Schema mit Permissions und Dependencies (ADR-012, noch offen)
 - Neue Events: `PLUGIN_ACTIVATING`, `PLUGIN_ACTIVATED`
 - Alle bestehenden Tests bleiben grün
 
