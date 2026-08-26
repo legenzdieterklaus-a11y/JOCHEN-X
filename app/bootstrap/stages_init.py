@@ -24,7 +24,6 @@ from app.bootstrap.constants import (
 )
 from app.bootstrap.types import (
     BootstrapContext,
-    BootstrapError,
     StartupPhase,
     _require,
 )

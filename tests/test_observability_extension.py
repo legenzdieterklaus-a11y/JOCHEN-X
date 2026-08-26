@@ -21,7 +21,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import core.observability as observability
+from core import observability
 import sdk.services as sdk_services
 from core.events import EventBus
 from core.observability import (

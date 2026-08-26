@@ -40,8 +40,6 @@ from app.di import DisposableRegistry, ServiceProvider
 from app.errors import CentralErrorHandler, ErrorCategory, PluginError
 from app.events import ApplicationEventName, ApplicationStarting, PluginActivated, PluginActivating
 from app.resources import ResourceError, ResourceManager
-from app.security.events import PluginRejected as SecurityPluginRejected
-from app.security.models import PluginTrustLevel
 from app.security.plugin_security import PluginSecurity
 from app.settings import RequiredKeysValidator, SettingsError, SettingsProvider
 from app.state_machine import ApplicationState, ApplicationStateMachine, IllegalStateTransitionError
@@ -1033,7 +1031,6 @@ class TrackingPlugin(Plugin):
             pool = context.registry.get(PluginRuntimePool)
             self.assertEqual(len(pool.runtimes), 3)
 
-            from app.bootstrap import PluginRuntimePool as PRP
 
             for runtime in reversed(pool.runtimes):
                 runtime.shutdown()

@@ -415,7 +415,7 @@ class PluginSecurityStage:
         from sdk.version import SDK_API_VERSION, ApiVersion
 
         from app.security.events import PluginRejected
-        from app.security.plugin_security import IntegrityPolicy, PluginSecurity
+        from app.security.plugin_security import PluginSecurity
 
         events = _require(context.events, "events")
         registry = _require(context.registry, "registry")

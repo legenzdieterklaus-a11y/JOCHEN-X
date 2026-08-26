@@ -7,7 +7,6 @@ No Qt event loop required.
 
 from __future__ import annotations
 
-import gc
 import logging
 import sys
 import tempfile
@@ -19,7 +18,6 @@ from core.registry import ServiceRegistry
 from core.version import Version, VersionManager
 from config.settings import ApplicationSettings
 from core.environment import Environment
-from plugins.loader import PluginCatalog, PluginLoader, PluginManifest
 
 from app.bootstrap import (
     BootstrapContext,

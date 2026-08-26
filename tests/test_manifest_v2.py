@@ -16,7 +16,6 @@ from pathlib import Path
 from core.version import Version, VersionManager
 from plugins.loader import PluginLoader, PluginManifest, _parse_manifest
 from sdk.manifest import (
-    Capability,
     PluginCategory,
     PluginMetadata,
     PluginPermission,
