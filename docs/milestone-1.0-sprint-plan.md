@@ -3,7 +3,7 @@
 | Feld | Wert |
 |---|---|
 | Document | JOCHEN X — Milestone 1.0 Sprint Plan |
-| Status | **APPROVED FOR SPRINT EXECUTION PLANNING (ADW-SPR-1.0-001)** |
+| Status | **APPROVED AS PLANNING BASIS (ADW-SPR-1.0-001)** |
 | Version | 1.0 |
 | Revision | R0 |
 | Datum | 2026-08-09 |
