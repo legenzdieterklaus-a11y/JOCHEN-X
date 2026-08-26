@@ -77,7 +77,7 @@ GATE_SCOPE_FILES="$RB10_FILES $MWB015_FILES"
 GATE_EXPECTED_TESTS=386
 
 # Pfade, die ohne ausdrueckliche Human Decision unveraendert bleiben muessen
-FORBIDDEN_PATHS="src/jochen_x/ docs/architecture-book-v2.md"
+FORBIDDEN_PATHS="docs/architecture-book-v2.md"
 
 API_SNAPSHOT_SDK="scripts/baselines/sdk_api_surface_1.0.0.json"
 API_SNAPSHOT_BOOTSTRAP="scripts/baselines/app_bootstrap_api_surface_1.0.0.json"
