@@ -11,6 +11,9 @@ Tests verify:
 from __future__ import annotations
 
 import tempfile
+import tomllib
+
+import pytest
 from pathlib import Path
 
 from core.version import Version, VersionManager
@@ -24,8 +27,6 @@ from sdk.manifest import (
 
 def _parse_toml_string(content: str) -> dict[str, object]:
     """Parse a TOML string into a dict."""
-    import tomllib
-
     return tomllib.loads(content)
 
 
@@ -130,8 +131,6 @@ data = "also ignored"
 
 def test_manifest_v2_validation_errors() -> None:
     """AC-2: Invalid version strings are detected and rejected."""
-    import pytest
-
     invalid_version = _parse_toml_string("""\
 [plugin]
 id = "bad-version"

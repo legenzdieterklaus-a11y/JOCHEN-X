@@ -39,7 +39,7 @@ from app.bootstrap.types import (
 from app.di import DisposableRegistry
 from app.errors import ErrorCategory
 from app.events import ApplicationEventName
-from app.state_machine import ApplicationState
+from app.state_machine import ApplicationState, ApplicationStateMachine
 
 _DEFAULT_CONFIG = """[application]
 name = "JOCHEN X"
@@ -289,8 +289,6 @@ class StartupCleanupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as directory:
             root = _make_project_root(directory)
             try:
-                from app.state_machine import ApplicationStateMachine
-
                 manager = BootstrapManager()
                 context = manager.begin(root)
                 self.assertIs(manager.pending_context(), context)

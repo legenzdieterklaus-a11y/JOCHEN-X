@@ -7,7 +7,9 @@ touch the developer's working configuration.
 
 from __future__ import annotations
 
+import ast
 import gc
+import inspect
 import json
 import logging
 import sys
@@ -21,9 +23,11 @@ from core.environment import Environment
 from core.events import EventBus
 from core.exceptions import DatabaseError
 from core.registry import ServiceRegistry
+from core.version import Version
 
-from plugins.loader import PluginManifest
+from plugins.loader import PluginCatalog, PluginManifest
 
+import app.bootstrap
 from app.application_host import ApplicationHost
 from app.bootstrap import (
     BootstrapContext,
@@ -34,6 +38,7 @@ from app.bootstrap import (
     StartupPhase,
     default_stages,
 )
+from app.bootstrap import PluginSecurityStage as PSS
 from app.concurrency import CancellationToken, TaskCancelledError, WorkerPool
 from app.context import ApplicationContext
 from app.di import DisposableRegistry, ServiceProvider
@@ -256,8 +261,6 @@ class BootstrapContextTests(unittest.TestCase):
 
 class PluginSecurityStageTests(unittest.TestCase):
     def _make_manifest(self, identifier: str) -> PluginManifest:
-        from core.version import Version
-
         return PluginManifest(
             identifier=identifier,
             version=Version(1, 0, 0),
@@ -321,8 +324,6 @@ class PluginSecurityStageTests(unittest.TestCase):
         self.assertEqual(context.admitted_manifests[0].identifier, "admitted")
 
     def test_filtered_plugin_catalog_registered(self) -> None:
-        from plugins.loader import PluginCatalog
-
         context = self._make_context()
         good = self._make_manifest("admitted")
         bad = self._make_manifest("not-admitted")
@@ -467,7 +468,6 @@ class PluginActivationStageTests(unittest.TestCase):
             database_path="data/test.sqlite3",
             plugin_directory="plugins",
         )
-        from core.environment import Environment
 
         context.environment = Environment.from_root(root)
         return context
@@ -525,7 +525,6 @@ class TestPlugin(Plugin):
             "security.plugin.rejected",
             lambda e: rejected_events.append(e.payload["identifier"]),
         )
-        from app.bootstrap import PluginSecurityStage as PSS
 
         stage = PSS()
         stage.execute(context)
@@ -739,7 +738,6 @@ class PluginActivationEventsIntegrationTests(unittest.TestCase):
             database_path="data/test.sqlite3",
             plugin_directory="plugins",
         )
-        from core.environment import Environment
 
         context.environment = Environment.from_root(root)
         return context
@@ -969,7 +967,6 @@ class ReverseShutdownTests(unittest.TestCase):
             database_path="data/test.sqlite3",
             plugin_directory="plugins",
         )
-        from core.environment import Environment
 
         context.environment = Environment.from_root(root)
         return context
@@ -1153,8 +1150,6 @@ class BootstrapFacadeTests(unittest.TestCase):
 
     def test_all_public_exports_available(self) -> None:
         """Every declared public export is importable from the facade."""
-        import app.bootstrap
-
         self.assertEqual(len(app.bootstrap.__all__), 22)
         for name in self._EXPECTED_EXPORTS:
             with self.subTest(name=name):
@@ -1163,9 +1158,6 @@ class BootstrapFacadeTests(unittest.TestCase):
 
     def test_facade_contains_no_definitions(self) -> None:
         """The facade module defines no classes or functions of its own."""
-        import ast
-        import inspect
-
         source = inspect.getsource(sys.modules["app.bootstrap"])
         tree = ast.parse(source)
         for node in ast.iter_child_nodes(tree):

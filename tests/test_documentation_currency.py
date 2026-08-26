@@ -18,6 +18,11 @@ import re
 import unittest
 from pathlib import Path
 
+from app.bootstrap.stages_plugin import ActivationFailurePool, PluginRuntimePool
+from app.bootstrap.types import PIPELINE_STAGE_REFERENCES, PipelineStage
+from core.observability import PluginDiagnosticsReport
+from core.observability_registry import HealthCheckRegistry, MetricsRegistry
+
 import sdk
 from sdk.version import SDK_API_VERSION, SDK_VERSION
 
@@ -109,8 +114,6 @@ class ArchitectureCoverageTests(unittest.TestCase):
     """AC-012.1 — the architecture documentation names the implemented state."""
 
     def test_pipeline_stages_are_named(self) -> None:
-        from app.bootstrap.types import PIPELINE_STAGE_REFERENCES, PipelineStage
-
         text = _read(_ARCHITECTURE_ROOT_DOC) + _read(_ARCHITECTURE_DOC)
         for stage in PipelineStage:
             with self.subTest(stage=stage.name):
@@ -198,10 +201,6 @@ class ArchitectureConsistencyTests(unittest.TestCase):
 
     def test_documented_registry_keys_are_actually_registered(self) -> None:
         """Every aggregate the docs claim is published must be a real type."""
-        from app.bootstrap.stages_plugin import ActivationFailurePool, PluginRuntimePool
-        from core.observability import PluginDiagnosticsReport
-        from core.observability_registry import HealthCheckRegistry, MetricsRegistry
-
         for cls in (PluginRuntimePool, ActivationFailurePool, PluginDiagnosticsReport,
                     HealthCheckRegistry, MetricsRegistry):
             with self.subTest(cls=cls.__name__):

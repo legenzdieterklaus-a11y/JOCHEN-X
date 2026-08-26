@@ -11,9 +11,12 @@ SP-03/SP-04/SP-06 test suite covering:
 from __future__ import annotations
 
 import logging
+import tempfile
 import unittest
 
-from core.events import EventBus
+from config.settings import ApplicationSettings
+from core.environment import Environment
+from core.events import Event, EventBus
 from core.registry import ServiceRegistry
 from core.version import Version
 from pathlib import Path
@@ -22,6 +25,7 @@ from plugins.loader import PluginManifest
 
 from app.bootstrap import (
     BootstrapContext,
+    PluginActivationStage,
     PluginSecurityStage,
     RejectionCode,
     ValidationDiagnostic,
@@ -37,7 +41,9 @@ from app.security.plugin_security import (
     PluginSecurity,
 )
 from sdk.errors import PluginPermissionError
+from sdk.events import PluginEventBus
 from sdk.manifest import PluginPermission, SignatureStatus
+from styles.theme import ThemeMode
 
 
 class _TestBase(unittest.TestCase):
@@ -361,9 +367,6 @@ class TestPermissionEnforcementGranted(_TestBase):
 
     def test_permission_runtime_enforcement_succeeds(self) -> None:
         """AC-4: SDK PermissionCheck connected to host enforcement — granted access works."""
-        from core.events import Event
-        from sdk.events import PluginEventBus
-
         events = EventBus()
         granted = frozenset({PluginPermission.EVENTS_PUBLISH})
 
@@ -459,9 +462,6 @@ class TestPermissionEnforcementDenied(_TestBase):
 
     def test_permission_runtime_enforcement_blocks(self) -> None:
         """AC-4: SDK PermissionCheck connected to host enforcement — undeclared access blocked."""
-        from core.events import Event
-        from sdk.events import PluginEventBus
-
         events = EventBus()
         granted = frozenset({PluginPermission.EVENTS_SUBSCRIBE})
 
@@ -499,11 +499,6 @@ class _ActivationStageTestBase(_TestBase):
     """Helpers for tests that exercise PluginActivationStage."""
 
     def _make_activation_context(self) -> BootstrapContext:
-        import tempfile
-        from config.settings import ApplicationSettings
-        from core.environment import Environment
-        from styles.theme import ThemeMode
-
         context = self._make_context()
         tmp = Path(tempfile.mkdtemp())
         context.environment = Environment(
@@ -615,8 +610,6 @@ class TestActivationValidationReject(_ActivationStageTestBase):
             lambda e: rejected_events.append(e.payload),
         )
 
-        from app.bootstrap import PluginActivationStage
-
         stage = PluginActivationStage()
         stage.execute(context)
 
@@ -629,8 +622,6 @@ class TestActivationValidationReject(_ActivationStageTestBase):
         context = self._make_activation_context()
         manifest = self._make_manifest("crash-test", api_version=Version(99, 0, 0))
         context.admitted_manifests = (manifest,)
-
-        from app.bootstrap import PluginActivationStage
 
         stage = PluginActivationStage()
         stage.execute(context)
@@ -667,8 +658,6 @@ class TestMixedValidInvalidPlugins(_ActivationStageTestBase):
             "application.plugin.failed",
             lambda e: failed_ids.append(e.payload["identifier"]),
         )
-
-        from app.bootstrap import PluginActivationStage
 
         stage = PluginActivationStage()
         stage.execute(context)

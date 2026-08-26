@@ -15,6 +15,7 @@ import unittest
 from pathlib import Path
 
 from core.events import EventBus
+from core.registry import ServiceRegistry
 
 from app.application_host import ApplicationHost
 from app.bootstrap import BootstrapManager, StartupPhase, default_stages
@@ -386,8 +387,6 @@ class SecurityManagerTests(unittest.TestCase):
 
 class DependencyInjectionTests(unittest.TestCase):
     def test_manager_registers_all_services(self) -> None:
-        from core.registry import ServiceRegistry
-
         bus = EventBus()
         registry = ServiceRegistry()
         registry.register(EventBus, bus)

@@ -21,7 +21,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from config.settings import ApplicationSettings
 from core import observability
+from core.environment import Environment
 import sdk.services as sdk_services
 from core.events import EventBus
 from core.observability import (
@@ -98,9 +100,6 @@ def _manifest(
 
 
 def _context(root: Path) -> BootstrapContext:
-    from config.settings import ApplicationSettings
-    from core.environment import Environment
-
     context = BootstrapContext(root=root)
     context.logger = logging.getLogger("test.wp004")
     context.events = EventBus(logger=context.logger)
