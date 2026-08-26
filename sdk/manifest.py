@@ -23,6 +23,7 @@ from enum import StrEnum
 from typing import Any
 
 from sdk.errors import PluginManifestError
+from sdk.version import SDK_API_VERSION
 
 _IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9]*(?:[._-][a-zA-Z0-9]+)*$")
 """Reverse-DNS friendly identifier pattern: ``com.example.plugin-name``."""
@@ -446,8 +447,6 @@ class PluginMetadata:
         if not resolved_api_version and manifest_api_version is not None:
             resolved_api_version = str(manifest_api_version)
         if not resolved_api_version:
-            from sdk.version import SDK_API_VERSION
-
             resolved_api_version = SDK_API_VERSION
 
         resolved_category = category

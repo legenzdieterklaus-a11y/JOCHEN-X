@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
+import importlib
 import logging
+import sys
 from dataclasses import dataclass
 from time import perf_counter
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from sdk.plugin import PluginRuntime
-
-from core.events import EventBus
+from core.events import Event, EventBus
 from core.observability import (
     ActivationFailure,
     DiagnosticOutcome,
@@ -25,6 +23,11 @@ from core.observability_registry import (
 )
 from core.version import Version
 from plugins.loader import PluginCatalog, PluginLoader, PluginManifest
+from sdk.config import FilePluginConfigStorage
+from sdk.context import PluginContextBuilder
+from sdk.manifest import PluginMetadata
+from sdk.plugin import Plugin, PluginLifecycleState, PluginRuntime
+from sdk.version import SDK_API_VERSION, ApiVersion
 
 from app.bootstrap.types import (
     PIPELINE_STAGE_REFERENCES,
@@ -412,8 +415,6 @@ class PluginSecurityStage:
     phase: StartupPhase = StartupPhase.LOAD_PLUGINS
 
     def execute(self, context: BootstrapContext) -> None:
-        from sdk.version import SDK_API_VERSION, ApiVersion
-
         from app.security.events import PluginRejected
         from app.security.plugin_security import PluginSecurity
 
@@ -544,8 +545,6 @@ def _validate_for_activation(
     3. Permission verification — manifest permissions are declared
     4. Dependency verification — all dependencies in accepted set
     """
-    from sdk.version import ApiVersion
-
     identifier = manifest.identifier
 
     if not identifier or not str(manifest.version):
@@ -659,16 +658,6 @@ class PluginActivationStage:
     phase: StartupPhase = StartupPhase.FINALIZE
 
     def execute(self, context: BootstrapContext) -> None:
-        import importlib
-        import sys
-
-        from core.events import Event
-        from sdk.config import FilePluginConfigStorage
-        from sdk.context import PluginContextBuilder
-        from sdk.manifest import PluginMetadata
-        from sdk.plugin import Plugin, PluginLifecycleState, PluginRuntime
-        from sdk.version import SDK_API_VERSION
-
         settings = _require(context.settings, "settings")
         environment = _require(context.environment, "environment")
         registry = _require(context.registry, "registry")
