@@ -21,7 +21,7 @@ import json
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from threading import RLock
-from typing import Any, Protocol, TypeVar, runtime_checkable
+from typing import Any, Protocol, TypeVar, cast, runtime_checkable
 
 from sdk.errors import PluginConfigurationError
 
@@ -278,7 +278,7 @@ class PluginConfig:
             merged: dict[str, Any] = {}
             merged.update(self._defaults)
             merged.update(self._values)
-            return json.loads(json.dumps(merged))
+            return cast(dict[str, Any], json.loads(json.dumps(merged)))
 
     def load(self) -> None:
         """Refresh the runtime values from the storage backend.

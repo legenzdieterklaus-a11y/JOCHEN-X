@@ -21,7 +21,7 @@ Design notes
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from sdk.errors import PluginPermissionError, PluginServiceNotAvailableError
 from sdk.manifest import PluginPermission
@@ -88,7 +88,7 @@ class PluginServices:
         """
         self._ensure_permission(service_type)
         try:
-            return self._services[service_type]
+            return cast(T, self._services[service_type])
         except KeyError as error:
             raise PluginServiceNotAvailableError(
                 f"Service is not available to this plugin: {service_type.__name__}"
