@@ -30,6 +30,7 @@ from app.bootstrap import (
 )
 from app.events import ApplicationEventName
 from app.security.plugin_security import PluginSecurity
+from sdk.plugin import PluginLifecycleState
 
 
 _PLUGIN_TOML_TEMPLATE = """\
@@ -164,8 +165,6 @@ class TestFullPluginPipeline(unittest.TestCase):
             activation.execute(context)
             pool = context.registry.get(PluginRuntimePool)
             self.assertEqual(len(pool.runtimes), 1)
-
-            from sdk.plugin import PluginLifecycleState
 
             self.assertIs(pool.runtimes[0].state, PluginLifecycleState.STARTED)
 

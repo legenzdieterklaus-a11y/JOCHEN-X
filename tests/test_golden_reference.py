@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+import tomllib
 import sys
 import tempfile
 import unittest
@@ -19,6 +20,8 @@ from core.registry import ServiceRegistry
 from core.version import Version, VersionManager
 from config.settings import ApplicationSettings
 from core.environment import Environment
+from plugins.loader import _parse_manifest
+from sdk.plugin import PluginLifecycleState
 
 from app.bootstrap import (
     BootstrapContext,
@@ -28,6 +31,7 @@ from app.bootstrap import (
     PluginSecurityStage,
 )
 from app.events import ApplicationEventName
+from app.security.plugin_security import PermissionPolicy, PluginSecurity
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _REFERENCE_DIR = _PROJECT_ROOT / "plugins" / "reference"
@@ -87,8 +91,6 @@ class TestGoldenReferencePlugin(unittest.TestCase):
             )
             context = _make_context(root)
 
-            from app.security.plugin_security import PermissionPolicy, PluginSecurity
-
             policy = PermissionPolicy(
                 wildcard_grants=frozenset({"events.publish", "events.subscribe"}),
             )
@@ -122,8 +124,6 @@ class TestGoldenReferencePlugin(unittest.TestCase):
             pool = context.registry.get(PluginRuntimePool)
             self.assertEqual(len(pool.runtimes), 1)
 
-            from sdk.plugin import PluginLifecycleState
-
             self.assertIs(pool.runtimes[0].state, PluginLifecycleState.STARTED)
 
             # Shutdown
@@ -142,8 +142,6 @@ class TestGoldenReferencePlugin(unittest.TestCase):
 
     def test_golden_reference_manifest_v2(self) -> None:
         """Manifest v2 is fully parsed with all fields present."""
-        import tomllib
-
         manifest_path = _REFERENCE_DIR / "plugin.toml"
         with manifest_path.open("rb") as f:
             data = tomllib.load(f)
@@ -162,8 +160,6 @@ class TestGoldenReferencePlugin(unittest.TestCase):
         self.assertIn("author", metadata)
         self.assertIn("description", metadata)
 
-        from plugins.loader import _parse_manifest
-
         manifest = _parse_manifest(data)
         self.assertEqual(manifest.identifier, "reference")
         self.assertIsNotNone(manifest.api_version)
@@ -173,19 +169,13 @@ class TestGoldenReferencePlugin(unittest.TestCase):
 
     def test_golden_reference_permissions(self) -> None:
         """Permission declarations are correctly validated by the security pipeline."""
-        import tomllib
-
         manifest_path = _REFERENCE_DIR / "plugin.toml"
         with manifest_path.open("rb") as f:
             data = tomllib.load(f)
 
-        from plugins.loader import _parse_manifest
-
         manifest = _parse_manifest(data)
         self.assertIn("events.publish", manifest.permissions)
         self.assertIn("events.subscribe", manifest.permissions)
-
-        from app.security.plugin_security import PermissionPolicy, PluginSecurity
 
         events = EventBus(logger=logging.getLogger("test"))
 

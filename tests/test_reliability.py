@@ -17,10 +17,13 @@ import unittest
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from config.settings import ApplicationSettings
+from core.environment import Environment
 from core.events import EventBus
 from core.registry import ServiceRegistry
 from core.version import Version
 from plugins.loader import PluginManifest
+from sdk.plugin import PluginLifecycleState
 
 from app.application_host import ApplicationHost
 from app.bootstrap import BootstrapManager, default_stages
@@ -374,9 +377,6 @@ class ActivationIsolationTests(unittest.TestCase):
         )
 
     def _make_context(self, root: Path) -> BootstrapContext:
-        from config.settings import ApplicationSettings
-        from core.environment import Environment
-
         context = BootstrapContext(root=root)
         context.logger = logging.getLogger("test.wp005.activation")
         context.events = EventBus(logger=context.logger)
@@ -481,8 +481,6 @@ class ActivationIsolationTests(unittest.TestCase):
             self.assertEqual(failures.failures, ())
 
     def test_operation_continues_with_successfully_activated_plugins(self) -> None:
-        from sdk.plugin import PluginLifecycleState
-
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             plugin_dir = root / "plugins"

@@ -19,6 +19,7 @@ import time
 import unittest
 from pathlib import Path
 
+from config.settings import ApplicationSettings
 from core.environment import Environment
 from core.events import EventBus
 from core.exceptions import DatabaseError
@@ -26,6 +27,9 @@ from core.registry import ServiceRegistry
 from core.version import Version
 
 from plugins.loader import PluginCatalog, PluginManifest
+
+import sdk._test_hooks as hooks
+from sdk.plugin import PluginLifecycleState
 
 import app.bootstrap
 from app.application_host import ApplicationHost
@@ -441,8 +445,6 @@ class PluginActivationStageTests(unittest.TestCase):
         _cleanup_test_modules(self._modules_snapshot)
 
     def _make_manifest(self, identifier: str) -> PluginManifest:
-        from core.version import Version
-
         return PluginManifest(
             identifier=identifier,
             version=Version(1, 0, 0),
@@ -450,8 +452,6 @@ class PluginActivationStageTests(unittest.TestCase):
         )
 
     def _make_context(self, root: Path) -> BootstrapContext:
-        from config.settings import ApplicationSettings
-
         logger = logging.getLogger("test.activation_stage")
         events = EventBus(logger=logger)
         registry = ServiceRegistry()
@@ -504,14 +504,11 @@ class TestPlugin(Plugin):
             stage.execute(context)
             pool = context.registry.get(PluginRuntimePool)
             self.assertEqual(len(pool.runtimes), 1)
-            from sdk.plugin import PluginLifecycleState
 
             self.assertIs(pool.runtimes[0].state, PluginLifecycleState.STARTED)
 
     def test_activation_stage_api_version_mismatch_at_security_stage(self) -> None:
         """API version mismatch is now caught at PluginSecurityStage (WP-03)."""
-        from core.version import Version
-
         context = self._make_context(Path("."))
         manifest = PluginManifest(
             identifier="bad-api-plugin",
@@ -711,8 +708,6 @@ class PluginActivationEventsIntegrationTests(unittest.TestCase):
         _cleanup_test_modules(self._modules_snapshot)
 
     def _make_manifest(self, identifier: str) -> PluginManifest:
-        from core.version import Version
-
         return PluginManifest(
             identifier=identifier,
             version=Version(1, 0, 0),
@@ -720,8 +715,6 @@ class PluginActivationEventsIntegrationTests(unittest.TestCase):
         )
 
     def _make_context(self, root: Path) -> BootstrapContext:
-        from config.settings import ApplicationSettings
-
         logger = logging.getLogger("test.activation_events")
         events = EventBus(logger=logger)
         registry = ServiceRegistry()
@@ -881,7 +874,6 @@ class TestPlugin(Plugin):
             stage = PluginActivationStage()
             stage.execute(context)
             self.assertEqual(len(context.plugin_runtimes), 1)
-            from sdk.plugin import PluginLifecycleState
 
             self.assertIs(context.plugin_runtimes[0].state, PluginLifecycleState.STARTED)
 
@@ -940,8 +932,6 @@ class ReverseShutdownTests(unittest.TestCase):
         _cleanup_test_modules(self._modules_snapshot)
 
     def _make_manifest(self, identifier: str) -> PluginManifest:
-        from core.version import Version
-
         return PluginManifest(
             identifier=identifier,
             version=Version(1, 0, 0),
@@ -949,8 +939,6 @@ class ReverseShutdownTests(unittest.TestCase):
         )
 
     def _make_context(self, root: Path) -> BootstrapContext:
-        from config.settings import ApplicationSettings
-
         logger = logging.getLogger("test.reverse_shutdown")
         events = EventBus(logger=logger)
         registry = ServiceRegistry()
@@ -1018,8 +1006,6 @@ class TrackingPlugin(Plugin):
 
     def test_reverse_shutdown_order(self) -> None:
         """Plugins are shut down in reverse activation order."""
-        import sdk._test_hooks as hooks
-
         hooks.STOP_ORDER.clear()
         hooks.SHUTDOWN_ORDER.clear()
         with tempfile.TemporaryDirectory() as directory:
@@ -1049,8 +1035,6 @@ class TrackingPlugin(Plugin):
 
     def test_shutdown_with_failed_plugin(self) -> None:
         """A failing plugin shutdown does not prevent others from stopping."""
-        import sdk._test_hooks as hooks
-
         hooks.STOP_ORDER.clear()
         hooks.SHUTDOWN_ORDER.clear()
         with tempfile.TemporaryDirectory() as directory:
@@ -1099,15 +1083,12 @@ class TrackingPlugin(Plugin):
 
     def test_plugin_runtime_reaches_stopped_state(self) -> None:
         """After shutdown, plugin runtimes reach STOPPED state."""
-        import sdk._test_hooks as hooks
-
         hooks.STOP_ORDER.clear()
         hooks.SHUTDOWN_ORDER.clear()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             context = self._activate_plugins(root, ["rs-state-check"])
             pool = context.registry.get(PluginRuntimePool)
-            from sdk.plugin import PluginLifecycleState
 
             self.assertIs(pool.runtimes[0].state, PluginLifecycleState.STARTED)
             pool.runtimes[0].shutdown()
