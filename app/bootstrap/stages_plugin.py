@@ -688,7 +688,11 @@ class PluginActivationStage:
                             phase="validation",
                             reason=diagnostic.reason,
                             context={
-                                "rejection_code": diagnostic.rejection_code.value if diagnostic.rejection_code else "",
+                                "rejection_code": (
+                                    diagnostic.rejection_code.value
+                                    if diagnostic.rejection_code
+                                    else ""
+                                ),
                             },
                         ))
                         continue

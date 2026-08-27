@@ -41,8 +41,15 @@ class ApplicationSettings:
             log_level = str(application["log_level"]).upper()
             if log_level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
                 raise ValueError("unsupported log level")
-            return cls(str(application["name"]), str(application["version"]), log_level,
-                       theme_mode, str(database["path"]), str(plugins["directory"]), bool(application.get("developer_enabled", False)))
+            return cls(
+                str(application["name"]),
+                str(application["version"]),
+                log_level,
+                theme_mode,
+                str(database["path"]),
+                str(plugins["directory"]),
+                bool(application.get("developer_enabled", False)),
+            )
         except (KeyError, TypeError, ValueError) as error:
             raise ConfigurationError(f"Invalid configuration: {error}") from error
 
@@ -69,7 +76,8 @@ class ConfigurationService:
         self._profile_path.parent.mkdir(parents=True, exist_ok=True)
         self._profile_path.write_text(
             "[application]\nname = " + repr(data["name"]) + "\nversion = " + repr(data["version"]) +
-            "\nlog_level = " + repr(data["log_level"]) + "\ntheme_mode = " + repr(str(data["theme_mode"])) +
+            "\nlog_level = " + repr(data["log_level"]) +
+            "\ntheme_mode = " + repr(str(data["theme_mode"])) +
             "\ndeveloper_enabled = " + str(data["developer_enabled"]).lower() +
             "\n\n[database]\npath = " + repr(data["database_path"]) +
             "\n\n[plugins]\ndirectory = " + repr(data["plugin_directory"]) + "\n", encoding="utf-8")

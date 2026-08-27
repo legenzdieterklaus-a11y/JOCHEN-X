@@ -29,7 +29,9 @@ from app.state_machine import ApplicationState, ApplicationStateMachine
 class RuntimeState:
     """Live, thread-safe view of the application's runtime status."""
 
-    def __init__(self, state_machine: ApplicationStateMachine, *, started_at: float | None = None) -> None:
+    def __init__(
+        self, state_machine: ApplicationStateMachine, *, started_at: float | None = None
+    ) -> None:
         """Create the runtime view.
 
         Args:

@@ -58,7 +58,9 @@ class BrokerSecurity:
         self._policies: dict[str, BrokerAccessPolicy] = {}
         self._lock = RLock()
 
-    def register_broker(self, broker: str, *, required_permission: Permission) -> BrokerAccessPolicy:
+    def register_broker(
+        self, broker: str, *, required_permission: Permission
+    ) -> BrokerAccessPolicy:
         """Register the access policy required for a broker.
 
         Args:

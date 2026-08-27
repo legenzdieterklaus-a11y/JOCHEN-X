@@ -104,7 +104,9 @@ class ThreatDetector:
             "threat.detected",
             extra={"context": {"identity": identity, "category": report.category}},
         )
-        ThreatDetected(report.identifier, report.severity.value, report.category).publish(self._events)
+        ThreatDetected(
+            report.identifier, report.severity.value, report.category
+        ).publish(self._events)
 
     def _prune(self, timestamps: deque[float], now: float) -> None:
         """Drop timestamps that fall outside the sliding window."""

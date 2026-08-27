@@ -58,13 +58,17 @@ class LifecycleManager:
                 TransitionRejection(
                     source=self._state.value,
                     target=target.value,
-                    reason=f"Illegal lifecycle transition: '{self._state.value}' -> '{target.value}'",
+                    reason=(
+                        f"Illegal lifecycle transition: '{self._state.value}' -> '{target.value}'"
+                    ),
                     allowed=tuple(sorted(state.value for state in allowed)),
                 )
             )
         self._state = target
 
-    def register_module(self, name: str, start: Callable[[], None], stop: Callable[[], None]) -> None:
+    def register_module(
+        self, name: str, start: Callable[[], None], stop: Callable[[], None]
+    ) -> None:
         with self._lock:
             if self._state is LifecycleState.RUNNING:
                 raise RuntimeError("Cannot register while running")

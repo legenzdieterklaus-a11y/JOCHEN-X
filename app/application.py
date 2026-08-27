@@ -64,7 +64,9 @@ class Application:
         Returns:
             The process exit code from the Qt event loop.
         """
-        self._app = QApplication.instance() or QApplication(self._argv if self._argv is not None else sys.argv)
+        self._app = QApplication.instance() or QApplication(
+            self._argv if self._argv is not None else sys.argv
+        )
         self._host.set_fatal_callback(self._handle_fatal)
         context = self._host.start()
         self._apply_theme(context)
@@ -73,7 +75,9 @@ class Application:
             self._window = self._window_factory(context)
             self._window.show()
         else:
-            context.logger.info("application.headless", extra={"context": {"reason": "no window factory"}})
+            context.logger.info(
+                "application.headless", extra={"context": {"reason": "no window factory"}}
+            )
         exit_code = self._app.exec()
         self._host.shutdown(exit_code=exit_code)
         return exit_code

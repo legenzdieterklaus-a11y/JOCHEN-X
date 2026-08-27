@@ -77,4 +77,6 @@ class ShutdownSequence:
         finally:
             self._state.transition(ApplicationState.SHUTDOWN)
             ShutdownCompleted(exit_code).publish(self._events)
-            self._logger.info("shutdown.completed", extra={"context": {"exit_code": exit_code, "reason": reason}})
+            self._logger.info(
+                "shutdown.completed", extra={"context": {"exit_code": exit_code, "reason": reason}}
+            )

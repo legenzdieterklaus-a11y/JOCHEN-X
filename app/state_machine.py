@@ -44,10 +44,22 @@ class IllegalStateTransitionError(StateTransitionError):
 
 
 _TRANSITIONS: dict[ApplicationState, frozenset[ApplicationState]] = {
-    ApplicationState.STARTING: frozenset({ApplicationState.INITIALIZING, ApplicationState.SHUTTING_DOWN}),
-    ApplicationState.INITIALIZING: frozenset({ApplicationState.LOADING_PLUGINS, ApplicationState.SHUTTING_DOWN}),
-    ApplicationState.LOADING_PLUGINS: frozenset({ApplicationState.LOADING_RESOURCES, ApplicationState.SHUTTING_DOWN}),
-    ApplicationState.LOADING_RESOURCES: frozenset({ApplicationState.READY, ApplicationState.SHUTTING_DOWN}),
+    ApplicationState.STARTING: frozenset({
+        ApplicationState.INITIALIZING,
+        ApplicationState.SHUTTING_DOWN,
+    }),
+    ApplicationState.INITIALIZING: frozenset({
+        ApplicationState.LOADING_PLUGINS,
+        ApplicationState.SHUTTING_DOWN,
+    }),
+    ApplicationState.LOADING_PLUGINS: frozenset({
+        ApplicationState.LOADING_RESOURCES,
+        ApplicationState.SHUTTING_DOWN,
+    }),
+    ApplicationState.LOADING_RESOURCES: frozenset({
+        ApplicationState.READY,
+        ApplicationState.SHUTTING_DOWN,
+    }),
     ApplicationState.READY: frozenset({
         ApplicationState.BUSY,
         ApplicationState.UPDATING,
@@ -181,7 +193,9 @@ class ApplicationStateMachine:
                 )
             self._state = target
             listeners = tuple(self._listeners)
-        self._logger.info("state.transition", extra={"context": {"from": previous.value, "to": target.value}})
+        self._logger.info(
+            "state.transition", extra={"context": {"from": previous.value, "to": target.value}}
+        )
         if self._publisher is not None:
             ApplicationStateChanged(previous.value, target.value).publish(self._publisher)
         for listener in listeners:

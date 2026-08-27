@@ -41,7 +41,9 @@ class ApplicationHost:
     def bootstrap(self) -> None:
         """Initialize the foundation in dependency order, exactly once."""
         environment = Environment.from_root(self._root)
-        config = ConfigurationService(self._root / "config" / "default.toml", self._root / "config" / "profile.toml")
+        config = ConfigurationService(
+            self._root / "config" / "default.toml", self._root / "config" / "profile.toml"
+        )
         settings = config.load()
         logger = configure_logging(environment.root / "logs", settings.log_level)
         logger.info("bootstrap.started")
@@ -58,7 +60,9 @@ class ApplicationHost:
         self.services.register(VersionManager, versions)
         self.services.register(ProviderRegistry, providers)
         self.services.register(RoutingEngine, RoutingEngine(providers))
-        self.services.register(PluginLoader, PluginLoader(environment.root / settings.plugin_directory, versions))
+        self.services.register(
+            PluginLoader, PluginLoader(environment.root / settings.plugin_directory, versions)
+        )
         self.services.register(PerformanceMonitor, PerformanceMonitor())
         policy = SecurityPolicy(PermissionLayer())
         self.services.register(SecurityPolicy, policy)
@@ -75,7 +79,8 @@ class ApplicationHost:
             from developer.platform import DeveloperPlatform
             self.services.register(DeveloperPlatform, DeveloperPlatform(
                 enabled=True, events=self.services.get(EventBus), services=self.services,
-                plugins=self.services.get(PluginLoader), log_file=environment.root / "logs" / "jochen_x.log"))
+                plugins=self.services.get(PluginLoader),
+                log_file=environment.root / "logs" / "jochen_x.log"))
         logger.info("bootstrap.completed")
 
     def run(self) -> int:

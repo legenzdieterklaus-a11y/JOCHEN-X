@@ -130,5 +130,8 @@ class BackupManager:
         """Return all backup records, ordered by creation time."""
         with self._lock:
             return tuple(
-                sorted((stored.record for stored in self._backups.values()), key=lambda item: item.created_at)
+                sorted(
+                    (stored.record for stored in self._backups.values()),
+                    key=lambda item: item.created_at,
+                )
             )

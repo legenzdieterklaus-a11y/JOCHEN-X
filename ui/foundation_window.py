@@ -5,7 +5,9 @@ from PySide6.QtWidgets import QLabel, QMainWindow, QStatusBar, QTabWidget, QVBox
 
 class FoundationWindow(QMainWindow):
     """Displays initialized foundation status without exposing product features."""
-    def __init__(self, application_name: str, version: str, developer_center: QWidget | None = None) -> None:
+    def __init__(
+        self, application_name: str, version: str, developer_center: QWidget | None = None
+    ) -> None:
         super().__init__()
         self.setWindowTitle(f"{application_name} {version}")
         self.resize(960, 640)

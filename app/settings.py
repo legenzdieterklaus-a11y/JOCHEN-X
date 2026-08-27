@@ -110,7 +110,9 @@ class SettingsProvider:
             SettingsError: If the document is corrupt or fails validation.
         """
         if not self._path.exists():
-            self._logger.info("settings.defaults_created", extra={"context": {"path": str(self._path)}})
+            self._logger.info(
+                "settings.defaults_created", extra={"context": {"path": str(self._path)}}
+            )
             self.save(self._defaults)
             return dict(self._defaults)
         document = self._read_document()
@@ -182,7 +184,9 @@ class SettingsProvider:
             if migration is None:
                 raise SettingsError(f"No migration registered for version {source}")
             current = migration(current)
-            self._logger.info("settings.migrated", extra={"context": {"from": source, "to": source + 1}})
+            self._logger.info(
+                "settings.migrated", extra={"context": {"from": source, "to": source + 1}}
+            )
         return current
 
     def _validate(self, data: Mapping[str, Any]) -> None:

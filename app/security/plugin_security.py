@@ -307,7 +307,9 @@ class PluginSecurity:
                 admitted=True,
             )
             self._record_integrity(result)
-            PluginVerified(identifier, version, PluginTrustLevel.TRUSTED.value).publish(self._events)
+            PluginVerified(
+                identifier, version, PluginTrustLevel.TRUSTED.value
+            ).publish(self._events)
             self._logger.info(
                 "security.integrity.verified",
                 extra={"context": {
@@ -493,7 +495,9 @@ class PluginSecurity:
         if trust is PluginTrustLevel.REJECTED:
             raise PluginSecurityError(f"Plugin is rejected: {identifier}")
         allowed = trust in _ALLOWED_TRUST
-        verdict = PluginVerdict(identifier=identifier, version=version, trust=trust, allowed=allowed)
+        verdict = PluginVerdict(
+            identifier=identifier, version=version, trust=trust, allowed=allowed
+        )
         if allowed:
             PluginVerified(identifier, version, trust.value).publish(self._events)
         return verdict

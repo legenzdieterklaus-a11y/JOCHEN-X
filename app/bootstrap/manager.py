@@ -131,7 +131,9 @@ class BootstrapManager:
         self._pending.clear()
         logger.info("bootstrap.aborted", extra={"context": {"root": str(context.root)}})
 
-    def build_context(self, context: BootstrapContext, state_machine: ApplicationStateMachine) -> ApplicationContext:
+    def build_context(
+        self, context: BootstrapContext, state_machine: ApplicationStateMachine
+    ) -> ApplicationContext:
         """Assemble the immutable application context from a populated bootstrap context."""
         application_context = ApplicationContext(
             settings=_require(context.settings, "settings"),

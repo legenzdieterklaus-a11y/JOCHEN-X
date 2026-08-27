@@ -133,7 +133,9 @@ class PluginEventBus:
     no policy of its own.
     """
 
-    __slots__ = ("_bus", "_event_type", "_permission_check", "_plugin_id", "_subscriptions", "_lock")
+    __slots__ = (
+        "_bus", "_event_type", "_permission_check", "_plugin_id", "_subscriptions", "_lock"
+    )
 
     def __init__(
         self,

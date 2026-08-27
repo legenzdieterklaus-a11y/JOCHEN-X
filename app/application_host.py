@@ -125,7 +125,9 @@ class ApplicationHost:
         try:
             context = self._startup.execute(self._root)
         except Exception as error:
-            self._error_handler.handle(error, category=ErrorCategory.FATAL, context={"phase": "startup"})
+            self._error_handler.handle(
+                error, category=ErrorCategory.FATAL, context={"phase": "startup"}
+            )
             self._abort_startup()
             raise
         self._context = context
@@ -212,7 +214,9 @@ class ApplicationHost:
         """
         if self._fatal is None:
             raise RuntimeError("No fatal error to recover from")
-        self._logger.warning("host.recover", extra={"context": {"category": self._fatal.category.value}})
+        self._logger.warning(
+            "host.recover", extra={"context": {"category": self._fatal.category.value}}
+        )
         self._fatal = None
         self._reset()
         return self.start()
@@ -220,11 +224,19 @@ class ApplicationHost:
     def health(self) -> tuple[HealthStatus, ...]:
         """Return health statuses for the host's key subsystems."""
         state = self._state.state
-        operational = state in {ApplicationState.READY, ApplicationState.BUSY, ApplicationState.UPDATING}
+        operational = state in {
+            ApplicationState.READY,
+            ApplicationState.BUSY,
+            ApplicationState.UPDATING,
+        }
         return (
             HealthStatus("lifecycle", operational, state.value),
             HealthStatus("workers", True, f"active={self._workers.active_count()}"),
-            HealthStatus("errors", self._fatal is None, "ok" if self._fatal is None else self._fatal.category.value),
+            HealthStatus(
+                "errors",
+                self._fatal is None,
+                "ok" if self._fatal is None else self._fatal.category.value,
+            ),
         )
 
     def _build_startup(self) -> StartupSequence:

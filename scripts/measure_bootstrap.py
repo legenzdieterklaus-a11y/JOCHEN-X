@@ -391,7 +391,9 @@ def _build_report(cold: dict[str, Any], warm: list[dict[str, Any]]) -> dict[str,
     if pm03_usable:
         pm03 = _evaluate([run["pm03_pipeline_sum_ms"] for run in warm])
         pm03["status"] = "GEMESSEN"
-        pm03["basis"] = "Summe der Stages PluginDiscoveryStage + PluginSecurityStage + PluginActivationStage"
+        pm03["basis"] = (
+            "Summe der Stages PluginDiscoveryStage + PluginSecurityStage + PluginActivationStage"
+        )
     else:
         pm03 = {
             "status": "NICHT VERWERTBAR",
@@ -436,7 +438,9 @@ def _build_report(cold: dict[str, Any], warm: list[dict[str, Any]]) -> dict[str,
                 "zugelassen und PM-03 waere nicht messbar. In jeder Messreihe "
                 "identisch zu verwenden (B.4 Bedingung 1)."
             ),
-            "ablaufumgebung": "je Lauf ein eigenes temporaeres Verzeichnis mit kopiertem Referenzplugin",
+            "ablaufumgebung": (
+                "je Lauf ein eigenes temporaeres Verzeichnis mit kopiertem Referenzplugin"
+            ),
             "ausgeschlossen": "Ressourcenkennzahlen (Speicher, CPU) — B.6",
         },
         "messbedingungen_b4": {

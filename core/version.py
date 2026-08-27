@@ -33,4 +33,7 @@ class VersionManager:
 
     def is_compatible(self, required: Version) -> bool:
         """Return whether an extension targets the current major version."""
-        return required.major == self.application_version.major and required <= self.application_version
+        return (
+            required.major == self.application_version.major
+            and required <= self.application_version
+        )

@@ -4,7 +4,13 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from ai.gateway import Capability, ModelDescriptor, ProviderDescriptor, ProviderRegistry, RoutingEngine
+from ai.gateway import (
+    Capability,
+    ModelDescriptor,
+    ProviderDescriptor,
+    ProviderRegistry,
+    RoutingEngine,
+)
 from app.host import ApplicationHost
 from config.settings import ConfigurationService, ThemeMode
 from core.logging import configure_logging
@@ -36,7 +42,9 @@ class FoundationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             logger = configure_logging(Path(directory), "INFO")
             logger.info("test.event", extra={"context": {"key": "value"}})
-            self.assertIn("test.event", (Path(directory) / "jochen_x.log").read_text(encoding="utf-8"))
+            self.assertIn(
+                "test.event", (Path(directory) / "jochen_x.log").read_text(encoding="utf-8")
+            )
             logger.handlers.clear()
 
     def test_database_migration_and_repository(self) -> None:
@@ -62,7 +70,10 @@ class FoundationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             plugin = Path(directory) / "sample"
             plugin.mkdir()
-            (plugin / "plugin.toml").write_text('id = "sample"\nversion = "0.1.0"\nrequires_application = "0.1.0"\n', encoding="utf-8")
+            (plugin / "plugin.toml").write_text(
+                'id = "sample"\nversion = "0.1.0"\nrequires_application = "0.1.0"\n',
+                encoding="utf-8",
+            )
             loader = PluginLoader(Path(directory), VersionManager(Version.parse("0.1.0")))
             self.assertEqual(loader.discover()[0].identifier, "sample")
 

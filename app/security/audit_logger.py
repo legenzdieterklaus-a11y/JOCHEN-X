@@ -69,7 +69,9 @@ class AuditLogger:
             self._entries.append(entry)
         self._logger.info(
             "audit.recorded",
-            extra={"context": {"sequence": entry.sequence, "action": action, "outcome": outcome.value}},
+            extra={
+                "context": {"sequence": entry.sequence, "action": action, "outcome": outcome.value}
+            },
         )
         return entry
 

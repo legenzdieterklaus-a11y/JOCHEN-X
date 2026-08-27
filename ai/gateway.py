@@ -44,4 +44,9 @@ class RoutingEngine:
     def __init__(self, providers: ProviderRegistry) -> None:
         self._providers = providers
     def candidates(self, capability: Capability) -> tuple[ModelDescriptor, ...]:
-        return tuple(model for provider in self._providers.all() for model in provider.models if capability in model.capabilities)
+        return tuple(
+            model
+            for provider in self._providers.all()
+            for model in provider.models
+            if capability in model.capabilities
+        )

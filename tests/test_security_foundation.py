@@ -291,7 +291,9 @@ class PluginSecurityTests(unittest.TestCase):
         plugins.approve("acme.plugin")
         trusted = plugins.verify("acme.plugin", "1.0.0")
         self.assertTrue(trusted.allowed)
-        self.assertEqual(verified, [{"identifier": "acme.plugin", "version": "1.0.0", "trust": "trusted"}])
+        self.assertEqual(
+            verified, [{"identifier": "acme.plugin", "version": "1.0.0", "trust": "trusted"}]
+        )
 
     def test_rejected_plugin_raises(self) -> None:
         bus = EventBus()

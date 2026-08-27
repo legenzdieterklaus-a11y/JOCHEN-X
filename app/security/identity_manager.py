@@ -111,7 +111,9 @@ class IdentityManager:
         session = Session(session_id=uuid4().hex, identity_id=identity_id, started_at=time.time())
         with self._lock:
             self._sessions[session.session_id] = session
-        self._logger.info("identity.session_started", extra={"context": {"session": session.session_id}})
+        self._logger.info(
+            "identity.session_started", extra={"context": {"session": session.session_id}}
+        )
         return session
 
     def end_session(self, session_id: str) -> None:

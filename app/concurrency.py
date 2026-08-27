@@ -179,7 +179,9 @@ class _Task(QRunnable):
             self._handle._set_cancelled()
             signals.cancelled.emit()
         except Exception as error:  # boundary: worker errors must not crash the pool
-            self._logger.error("worker.failed", exc_info=error, extra={"context": {"type": type(error).__name__}})
+            self._logger.error(
+                "worker.failed", exc_info=error, extra={"context": {"type": type(error).__name__}}
+            )
             self._handle._set_error(error)
             signals.error.emit(error)
         finally:
@@ -190,7 +192,9 @@ class _Task(QRunnable):
 class WorkerPool:
     """Bounded background worker pool with cancellation and timeout support."""
 
-    def __init__(self, *, max_workers: int | None = None, logger: logging.Logger | None = None) -> None:
+    def __init__(
+        self, *, max_workers: int | None = None, logger: logging.Logger | None = None
+    ) -> None:
         """Create the pool.
 
         Args:
@@ -318,4 +322,8 @@ class UiDispatcher(QObject):
         try:
             callback()
         except Exception as error:  # boundary: keep the UI event loop alive
-            self._logger.error("ui.dispatch_failed", exc_info=error, extra={"context": {"type": type(error).__name__}})
+            self._logger.error(
+                "ui.dispatch_failed",
+                exc_info=error,
+                extra={"context": {"type": type(error).__name__}},
+            )

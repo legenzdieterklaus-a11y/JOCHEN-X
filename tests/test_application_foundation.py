@@ -95,7 +95,9 @@ class StateMachineTests(unittest.TestCase):
     def test_valid_transition_emits_event(self) -> None:
         bus = EventBus()
         captured: list[dict[str, object]] = []
-        bus.subscribe(str(ApplicationEventName.STATE_CHANGED), lambda event: captured.append(event.payload))
+        bus.subscribe(
+            str(ApplicationEventName.STATE_CHANGED), lambda event: captured.append(event.payload)
+        )
         machine = ApplicationStateMachine(publisher=bus)
         machine.transition(ApplicationState.INITIALIZING)
         self.assertIs(machine.state, ApplicationState.INITIALIZING)
@@ -196,7 +198,8 @@ class ErrorHandlingTests(unittest.TestCase):
     def test_classification_and_fatal_escalation(self) -> None:
         fatal: list[str] = []
         handler = CentralErrorHandler(
-            logger=logging.getLogger("test.errors"), on_fatal=lambda report: fatal.append(report.category.value)
+            logger=logging.getLogger("test.errors"),
+            on_fatal=lambda report: fatal.append(report.category.value),
         )
         database = handler.handle(DatabaseError("boom"))
         self.assertTrue(database.is_fatal)
@@ -391,7 +394,9 @@ class BootstrapTests(unittest.TestCase):
                 application_context = manager.build_context(context, ApplicationStateMachine())
                 self.assertIsInstance(application_context, ApplicationContext)
                 self.assertEqual(application_context.settings.name, "JOCHEN X")
-                self.assertIs(application_context.services.get(EventBus), application_context.events)
+                self.assertIs(
+                    application_context.services.get(EventBus), application_context.events
+                )
             finally:
                 _reset_application_logging()
 
@@ -472,7 +477,9 @@ class PluginActivationStageTests(unittest.TestCase):
         context.environment = Environment.from_root(root)
         return context
 
-    def _create_test_plugin(self, plugin_dir: Path, identifier: str, *, api_version: str = "1.0.0") -> None:
+    def _create_test_plugin(
+        self, plugin_dir: Path, identifier: str, *, api_version: str = "1.0.0"
+    ) -> None:
         """Create a minimal plugin package on disk."""
         pkg = plugin_dir / identifier
         pkg.mkdir(parents=True, exist_ok=True)
@@ -992,7 +999,9 @@ class TrackingPlugin(Plugin):
             encoding="utf-8",
         )
 
-    def _activate_plugins(self, root: Path, identifiers: list[str], *, fail_shutdown: str | None = None) -> BootstrapContext:
+    def _activate_plugins(
+        self, root: Path, identifiers: list[str], *, fail_shutdown: str | None = None
+    ) -> BootstrapContext:
         plugin_dir = root / "plugins"
         for ident in identifiers:
             self._create_tracking_plugin(

@@ -38,10 +38,14 @@ class MigrationManager:
         connection = self._connections.connect()
         try:
             with connection:
-                connection.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)")
+                connection.execute(
+                    "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)"
+                )
                 row = connection.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
                 if row is None:
-                    connection.execute("INSERT INTO schema_version(version) VALUES (?)", (self.CURRENT_VERSION,))
+                    connection.execute(
+                        "INSERT INTO schema_version(version) VALUES (?)", (self.CURRENT_VERSION,)
+                    )
                 elif row[0] != self.CURRENT_VERSION:
                     raise DatabaseError(f"Unsupported schema version: {row[0]}")
                 connection.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)")

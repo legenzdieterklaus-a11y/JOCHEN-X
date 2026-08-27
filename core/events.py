@@ -54,11 +54,16 @@ class EventBus:
         self._lock = RLock()
 
     def subscribe(self, event_name: str, handler: EventHandler, *, priority: int = 0,
-                  event_filter: EventFilter | None = None, receive_sticky: bool = True) -> Callable[[], None]:
+                  event_filter: EventFilter | None = None,
+                  receive_sticky: bool = True) -> Callable[[], None]:
         subscription = _Subscription(event_name, handler, priority, event_filter)
         with self._lock:
             self._subscriptions.append(subscription)
-            sticky = tuple(event for name, event in self._sticky.items() if fnmatch.fnmatchcase(name, event_name))
+            sticky = tuple(
+                event
+                for name, event in self._sticky.items()
+                if fnmatch.fnmatchcase(name, event_name)
+            )
         if receive_sticky:
             for event in sticky:
                 if event_filter is None or event_filter(event):
@@ -116,16 +121,28 @@ class EventBus:
         with self._lock:
             return tuple(self._deliveries)
 
-    def _record_delivery(self, event: Event, handlers: tuple[_Subscription, ...], started: float, error: str | None) -> None:
+    def _record_delivery(
+        self, event: Event, handlers: tuple[_Subscription, ...], started: float, error: str | None
+    ) -> None:
         with self._lock:
-            self._deliveries.append(EventDelivery(event.name, time(), len(handlers), (perf_counter() - started) * 1_000,
-                                                  max((item.priority for item in handlers), default=0), error))
+            self._deliveries.append(EventDelivery(
+                event.name,
+                time(),
+                len(handlers),
+                (perf_counter() - started) * 1_000,
+                max((item.priority for item in handlers), default=0),
+                error,
+            ))
 
     def _record_and_select(self, event: Event, sticky: bool) -> tuple[_Subscription, ...]:
         with self._lock:
             self._history.append(event)
             if sticky:
                 self._sticky[event.name] = event
-            selected = [item for item in self._subscriptions if fnmatch.fnmatchcase(event.name, item.pattern)
-                        and (item.event_filter is None or item.event_filter(event))]
+            selected = [
+                item
+                for item in self._subscriptions
+                if fnmatch.fnmatchcase(event.name, item.pattern)
+                and (item.event_filter is None or item.event_filter(event))
+            ]
         return tuple(sorted(selected, key=lambda item: item.priority, reverse=True))

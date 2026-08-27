@@ -139,7 +139,11 @@ class CentralErrorHandler:
             The structured :class:`ErrorReport`.
         """
         resolved_category = category or self._classify(error)
-        severity = ErrorSeverity.FATAL if resolved_category in _FATAL_CATEGORIES else ErrorSeverity.RECOVERABLE
+        severity = (
+            ErrorSeverity.FATAL
+            if resolved_category in _FATAL_CATEGORIES
+            else ErrorSeverity.RECOVERABLE
+        )
         report = ErrorReport(
             category=resolved_category,
             severity=severity,
@@ -149,12 +153,16 @@ class CentralErrorHandler:
         )
         self._log(report, error)
         if self._publisher is not None:
-            ErrorRaised(report.category.value, report.severity.value, report.message).publish(self._publisher)
+            ErrorRaised(
+                report.category.value, report.severity.value, report.message
+            ).publish(self._publisher)
         if report.is_fatal and self._on_fatal is not None:
             self._on_fatal(report)
         return report
 
-    def guard(self, report: Callable[[BaseException], None] | None = None) -> Callable[[BaseException], None]:
+    def guard(
+        self, report: Callable[[BaseException], None] | None = None
+    ) -> Callable[[BaseException], None]:
         """Return a reporter callable suitable for UI-boundary error routing."""
         def reporter(error: BaseException) -> None:
             self.handle(error, category=ErrorCategory.UI)

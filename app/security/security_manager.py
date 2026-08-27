@@ -212,7 +212,9 @@ class SecurityManager:
             return
         self._threats.start()
         self._initialized = True
-        self._logger.info("security.initialized", extra={"context": {"services": _MANAGED_SERVICE_COUNT}})
+        self._logger.info(
+            "security.initialized", extra={"context": {"services": _MANAGED_SERVICE_COUNT}}
+        )
         SecurityInitialized(_MANAGED_SERVICE_COUNT).publish(self._events)
 
     def dispose(self) -> None:
