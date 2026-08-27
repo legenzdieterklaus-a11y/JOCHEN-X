@@ -93,6 +93,104 @@ Abhängigkeiten zeigen immer nach innen. Keine Schicht importiert aus einer äu�
 - Keine unnötigen Refactorings oder Bibliotheken
 - Bestehende Architektur hat Vorrang vor Neuentwicklung
 
+### Nachweisführung
+
+**Ohne Beleg gilt „unklar", nicht „gewollt".** Eine plausible Ableitung ist
+kein Beleg. Wird eine Quelle zitiert, muss sie die Aussage tatsächlich
+tragen — im Zweifel gegen die Primärquelle prüfen, nicht gegen ein Dokument,
+das sie zitiert.
+
+**Fakt, Ableitung und Empfehlung sind zu trennen.** Eine Ableitung wird als
+solche gekennzeichnet, auch wenn sie überzeugend ist.
+
+**Bei Abweichung gilt STOPP, nicht Interpretation.** Weicht ein Ist-Wert von
+der Erwartung ab, wird gemeldet und angehalten — nicht angepasst, bis es
+passt.
+
+### Erwartungswerte
+
+**Keine festen Zahlen für volatile Größen.** HEAD-SHA, Anzahl untracked
+Dateien und Befundzahlen ändern sich zwischen Planung und Ausführung.
+Erwartungen werden relativ formuliert („unverändert gegenüber der
+Vorprüfung") oder als Erhebung, nicht als Vorgabe.
+
+**Ausnahme:** Werte, deren Abweichung ein echter Stopp-Grund wäre. Dort ist
+der feste Wert die Absicherung.
+
+### Bereinigungsarbeit
+
+**Befunde werden behoben, nicht wegkonfiguriert.** Eine Ausnahme ist nur
+zulässig, wenn ihre Befolgung eine höherrangige Vorgabe verletzen würde oder
+technisch unmöglich ist — mit Beleg. Nie aus Bequemlichkeit.
+
+**Kein `noqa`, kein `type: ignore`, keine Lockerung der Prüfkonfiguration**
+ohne ausdrückliche Entscheidung. Ausnahmen gehören in `pyproject.toml` mit
+Begründungskommentar, nicht verstreut in den Quelltext.
+
+**Zuordnungspflicht:** Jeder beseitigte Befund muss einer konkreten
+Ausgangsmeldung zugeordnet werden. Nicht zugeordnete Befunde bleiben
+unangetastet.
+
+**Ein Test gewinnt gegen eine Umstellung.** Widerspricht ein Test einer
+Änderung, wird die Änderung zurückgenommen — nicht der Test angepasst.
+
+### Vor jedem Schreibakt
+
+1. Freigabe muss ausdrücklich vorliegen
+2. Verifikation **vor** dem Commit, nicht danach
+3. Ein Commit pro Thema
+4. Nach Änderungen an `app/`, `core/`, `sdk/`: **beide API-Snapshots prüfen**
+   — eine Abweichung ist eine Vertragsänderung, kein Bereinigungsschritt
+5. Nach Änderungen an der Paketstruktur oder an `app/bootstrap/`:
+   **Startnachweis wiederholen** (`python main.py` bis `READY`)
+
+### Analyse
+
+**Ein Import aus einem Paket mit `__init__.py` zieht dessen vollständigen
+Importbaum nach.** Zirkularitätsprüfungen, die nur Zielmodule lesen, sind
+unvollständig. Namespace-Pakete ohne `__init__.py` sind davon nicht betroffen.
+
+**„Statisch nicht erreichbar" bedeutet nicht „toter Code".** Dynamisch
+geladene Plugins, Testinfrastruktur und Gerüste für künftige Arbeit stehen
+nicht im Importgraph.
+
+**Ruff vereinigt alle passenden `per-file-ignores`-Muster** — Datei- und
+Verzeichniseinträge ergänzen einander, das spezifischste verdrängt nicht die
+übrigen.
+
+### Trennschärfe
+
+| Unterscheidung | Bedeutung |
+|---|---|
+| offen ≠ unbehandelt ≠ blockierend | ein registrierter offener Punkt blockiert nichts |
+| nicht im Scope ≠ erledigt | Zurückstellung schließt nichts |
+| entschieden ≠ vollzogen | ein Beschluss ohne Ausführung bleibt offen |
+| Inhalt ≠ Prozess | die Sachfrage und ihr Verfahren werden getrennt geführt |
+
+### Meilensteinbericht
+
+**Nach jedem abgeschlossenen Meilenstein wird ein Bericht erstellt** — vor
+dem nächsten Arbeitsschritt, nicht nachträglich. Der Bericht wird einmal
+vollständig durchgegangen und geprüft, bevor er als abgeschlossen gilt.
+
+Er enthält:
+
+| Abschnitt | Inhalt |
+|---|---|
+| **Was ausgeführt wurde** | Commits mit Hash, Umfang in Dateien und Zeilen |
+| **Belegter Stand** | Messwerte mit Quelle: Tests, Lint, Typprüfung, Gate, Snapshots, Startnachweis |
+| **Was entschieden wurde** | Human Decisions mit Record-Verweis |
+| **Was offen bleibt** | benannt, nicht implizit — mit Kennung, wo eine existiert |
+| **Zurückgenommene Aussagen** | Behauptungen, die sich nicht gehalten haben, mit Belegstelle |
+| **Nicht behandelt** | ausdrücklich zurückgestelltes, damit es nicht als erledigt gilt |
+
+**Zahlen im Bericht sind zu belegen, nicht zu erinnern.** Jede Kennzahl wird
+zum Berichtszeitpunkt erhoben.
+
+**Der Bericht ist keine Erfolgsmeldung.** Fehlgeschlagene Versuche, korrigierte
+Annahmen und Stopps gehören hinein — sie sind der Teil, der später gebraucht
+wird.
+
 ### Git-Konventionen
 
 Commit-Präfixe: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
