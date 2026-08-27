@@ -33,6 +33,12 @@ disallow_untyped_defs = false
 disallow_incomplete_defs = false
 warn_return_any = false
 
+# StrEnum-Mitglieder sind zur Laufzeit str; strict-equality meldet den
+# Vergleich dennoch als nicht ueberlappend.
+[[tool.mypy.overrides]]
+module = "tests.test_capability_matrix"
+disable_error_code = ["comparison-overlap"]
+
 [tool.ruff]
 src = ["."]
 target-version = "py313"

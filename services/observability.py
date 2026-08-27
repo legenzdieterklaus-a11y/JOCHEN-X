@@ -30,7 +30,7 @@ class PerformanceMonitor:
         """Return a synchronous process snapshot suitable for explicit polling."""
         ram = None
         try:
-            import resource  # type: ignore[import-not-found]
+            import resource
             ram = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024
         except ImportError:
             pass

@@ -11,9 +11,9 @@ class MessageWidget(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.layout = QVBoxLayout(self)
-        self.layout.setSpacing(8)
-        self.layout.addStretch()
+        self._box = QVBoxLayout(self)
+        self._box.setSpacing(8)
+        self._box.addStretch()
 
     def add_message(self, text, sender="assistant", timestamp=""):
 
@@ -23,8 +23,8 @@ class MessageWidget(QWidget):
             timestamp=timestamp,
         )
 
-        self.layout.insertWidget(
-            self.layout.count() - 1,
+        self._box.insertWidget(
+            self._box.count() - 1,
             bubble,
         )
 
@@ -32,9 +32,9 @@ class MessageWidget(QWidget):
 
     def clear_messages(self):
 
-        while self.layout.count() > 1:
+        while self._box.count() > 1:
 
-            item = self.layout.takeAt(0)
+            item = self._box.takeAt(0)
 
             widget = item.widget()
 

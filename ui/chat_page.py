@@ -14,14 +14,14 @@ class ChatPage(QWidget):
 
         layout = QVBoxLayout(self)
 
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
+        self._scroll_area = QScrollArea()
+        self._scroll_area.setWidgetResizable(True)
 
         self.messages = MessageWidget()
 
-        self.scroll.setWidget(self.messages)
+        self._scroll_area.setWidget(self.messages)
 
-        layout.addWidget(self.scroll)
+        layout.addWidget(self._scroll_area)
 
     def add_user_message(self, text, timestamp=""):
 
@@ -49,7 +49,7 @@ class ChatPage(QWidget):
 
     def scroll_to_bottom(self):
 
-        scrollbar = self.scroll.verticalScrollBar()
+        scrollbar = self._scroll_area.verticalScrollBar()
 
         scrollbar.setValue(
             scrollbar.maximum()

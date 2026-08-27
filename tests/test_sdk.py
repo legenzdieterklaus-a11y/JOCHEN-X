@@ -684,7 +684,7 @@ class _EchoTool(ToolPlugin):
             permissions=frozenset(),
         )
 
-    def execute(self, request):  # type: ignore[override]
+    def execute(self, request):
         return {"echo": request.get("value")}
 
 
@@ -699,7 +699,7 @@ class _NamedWorkflow(WorkflowPlugin):
     def workflows(self) -> tuple[str, ...]:
         return ("hello",)
 
-    def run(self, workflow: str, arguments):  # type: ignore[override]
+    def run(self, workflow: str, arguments):
         if workflow != "hello":
             raise KeyError(workflow)
         return {"greeting": f"Hello, {arguments.get('name', 'world')}!"}
