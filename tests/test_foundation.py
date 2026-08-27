@@ -11,7 +11,7 @@ from ai.gateway import (
     ProviderRegistry,
     RoutingEngine,
 )
-from app.host import ApplicationHost
+from app.application_host import ApplicationHost
 from config.settings import ConfigurationService, ThemeMode
 from core.logging import configure_logging
 from core.version import Version, VersionManager
@@ -23,9 +23,17 @@ from styles.theme import DARK, ThemeEngine
 class FoundationTests(unittest.TestCase):
     """Verify each foundation subsystem without starting a GUI event loop."""
     def test_bootstrap_composes_services(self) -> None:
+        """Verify that the active bootstrap pipeline composes the foundation.
+
+        The check was moved from the superseded ``app.host`` composition root
+        to ``app.application_host``. Its subject changed deliberately: it now
+        asserts the service composition of the pipeline ``main.py`` actually
+        runs, not that of the removed parallel host. ``start()`` performs the
+        full startup without creating a window.
+        """
         host = ApplicationHost.create_default()
-        host.bootstrap()
-        self.assertGreaterEqual(sum(1 for _ in host.services), 12)
+        context = host.start()
+        self.assertGreaterEqual(sum(1 for _ in context.registry), 12)
         host.shutdown()
 
     def test_config_load_and_profile_round_trip(self) -> None:
