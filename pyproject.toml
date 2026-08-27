@@ -55,7 +55,6 @@ max-args = 7
 
 # PLC0415 - 3a Fall A: ADR-003, optionale Developer Platform
 "app/bootstrap/stages_late.py" = ["PLC0415"]
-"app/host.py" = ["PLC0415"]
 # PLC0415 - 3a Fall B: resource ist POSIX-only
 "services/observability.py" = ["PLC0415"]
 # PLC0415 - 3a Fall F: Laufzeitnachweis Importzyklus app.security -> app.bootstrap
