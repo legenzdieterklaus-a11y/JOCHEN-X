@@ -226,7 +226,10 @@ def _single_run(root: Path) -> dict[str, Any]:
     activated = 0
     states: list[str] = []
     try:
-        pool = context.registry.get(PluginRuntimePool)
+        registry = context.registry
+        if registry is None:
+            raise RuntimeError("Bootstrap-Kontext ohne Registry")
+        pool = registry.get(PluginRuntimePool)
         for runtime in pool.runtimes:
             state = getattr(runtime.state, "name", str(runtime.state))
             states.append(state)
@@ -251,7 +254,10 @@ def _single_run(root: Path) -> dict[str, Any]:
     #     erst die Runtimes, dann die Disposables, zuletzt das Logging.
     #     Das Logging zuletzt, weil dispose_all() noch protokolliert.
     try:
-        pool = context.registry.get(PluginRuntimePool)
+        registry = context.registry
+        if registry is None:
+            raise RuntimeError("Bootstrap-Kontext ohne Registry")
+        pool = registry.get(PluginRuntimePool)
         for runtime in reversed(pool.runtimes):
             runtime.shutdown()
     except Exception:  # noqa: BLE001, S110 - Aufraeumen darf die Messung nicht kippen
