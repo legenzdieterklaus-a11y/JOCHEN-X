@@ -41,5 +41,34 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "F", "B", "S", "ASYNC", "PL"]
 
+[tool.ruff.lint.pylint]
+max-args = 7
+
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101", "BLE001", "PLR2004"]
+
+# PLC0415 - 3a Fall A: ADR-003, optionale Developer Platform
+"app/bootstrap/stages_late.py" = ["PLC0415"]
+"app/host.py" = ["PLC0415"]
+# PLC0415 - 3a Fall B: resource ist POSIX-only
+"services/observability.py" = ["PLC0415"]
+# PLC0415 - 3a Fall F: Laufzeitnachweis Importzyklus app.security -> app.bootstrap
+"app/bootstrap/stages_plugin.py" = ["PLC0415"]
+# PLC0415 - 3a Fall C: sys.path wird erst zur Laufzeit gesetzt
+# PLR0915/PLR0912 - 3b Paragraph 4: Werkzeug-Skripte
+"scripts/measure_bootstrap.py" = ["PLC0415"]
+"scripts/**" = ["PLR0915", "PLR0912"]
+# S105 - 3b Paragraph 3: Namensraum-Praefix bzw. StrEnum-Ereignisnamen, keine Geheimnisse
+"app/security/api_key_manager.py" = ["S105"]
+"app/security/events.py" = ["S105"]
+# PLR0913 - 3b Paragraph 4: Kompositionsknoten, 13 Zuweisungen, keine Verzweigung
+"app/security/security_manager.py" = ["PLR0913"]
+# B027/S110 - 3b Paragraph 3: Hooks mit No-Op-Standard; Beobachterfehler duerfen
+#                             das Plugin nicht beeinflussen
+"sdk/plugin.py" = ["B027", "S110"]
+# F401 - 3b Paragraph 3: belegter Re-Export von _validate_for_activation
+"app/bootstrap/__init__.py" = ["F401"]
+# S110 - 3b Paragraph 3: das Schlucken ist Gegenstand der Pruefung
+"tests/test_application_foundation.py" = ["S110"]
+# B008 - 3b Paragraph 3: Version ist frozen=True, das Default-Objekt ist unveraenderlich
+"tests/test_dependency_resolution.py" = ["B008"]
