@@ -83,7 +83,7 @@ class HostServiceDescriptionTests(unittest.TestCase):
 
     def test_factory_description_has_name_type_and_availability(self) -> None:
         registry = ServiceRegistry()
-        registry.register_factory(_Widget, lambda: _Widget())
+        registry.register_factory(_Widget, _Widget)
         descriptor = registry.describe(_Widget)
         self.assertEqual(descriptor.key, "_Widget")
         self.assertEqual(descriptor.service_type, "_Widget")

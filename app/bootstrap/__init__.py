@@ -39,7 +39,6 @@ from app.bootstrap.types import (
     RejectionCode,
     StartupPhase,
     ValidationDiagnostic,
-    _require,
 )
 
 __all__ = [

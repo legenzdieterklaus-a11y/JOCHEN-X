@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+_SEMVER_PARTS = 3
+
 SDK_NAME: str = "jochen-x-sdk"
 """Stable, machine-readable SDK distribution name."""
 
@@ -56,7 +58,7 @@ class ApiVersion:
                 string of non-negative decimal integers.
         """
         parts = value.split(".") if isinstance(value, str) else []
-        if len(parts) != 3 or not all(part.isdigit() for part in parts):
+        if len(parts) != _SEMVER_PARTS or not all(part.isdigit() for part in parts):
             raise ValueError(f"Invalid semantic version: {value!r}")
         return cls(*(int(part) for part in parts))
 

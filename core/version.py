@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 
+_SEMVER_PARTS = 3
+
 
 @dataclass(frozen=True, order=True, slots=True)
 class Version:
@@ -15,7 +17,7 @@ class Version:
     def parse(cls, value: str) -> "Version":
         """Parse an exact `major.minor.patch` version."""
         parts = value.split(".")
-        if len(parts) != 3 or any(not part.isdigit() for part in parts):
+        if len(parts) != _SEMVER_PARTS or any(not part.isdigit() for part in parts):
             raise ValueError(f"Invalid semantic version: {value}")
         return cls(*(int(part) for part in parts))
 

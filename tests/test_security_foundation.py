@@ -39,6 +39,7 @@ from app.security import (
     SecretNotFoundError,
     SecretVault,
     SecurityBootstrapStage,
+    SecurityError,
     SecurityEventName,
     SecurityManager,
     ThreatDetector,
@@ -193,9 +194,9 @@ class IdentityManagerTests(unittest.TestCase):
 
     def test_unknown_identity_and_session_raise(self) -> None:
         manager = IdentityManager()
-        with self.assertRaises(Exception):
+        with self.assertRaises(SecurityError):
             manager.get("missing")
-        with self.assertRaises(Exception):
+        with self.assertRaises(SecurityError):
             manager.start_session("missing")
 
 
@@ -244,12 +245,12 @@ class ApiKeyManagerTests(unittest.TestCase):
         manager, _ = self._manager()
         record, _secret = manager.create("primary")
         manager.revoke(record.key_id)
-        with self.assertRaises(Exception):
+        with self.assertRaises(SecurityError):
             manager.reveal_secret(record.key_id)
 
     def test_unknown_key_raises(self) -> None:
         manager, _ = self._manager()
-        with self.assertRaises(Exception):
+        with self.assertRaises(SecurityError):
             manager.get("missing")
 
 
@@ -317,7 +318,7 @@ class BackupManagerTests(unittest.TestCase):
 
     def test_unknown_backup_raises(self) -> None:
         manager = BackupManager(ReversibleEncryptionService(), EventBus())
-        with self.assertRaises(Exception):
+        with self.assertRaises(SecurityError):
             manager.restore_backup("missing")
 
 

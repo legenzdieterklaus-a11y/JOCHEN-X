@@ -157,7 +157,7 @@ def _signature(module: _Module, node: ast.FunctionDef | ast.AsyncFunctionDef) ->
     elif args.kwonlyargs:
         parts.append("*")
 
-    for arg, default in zip(args.kwonlyargs, args.kw_defaults):
+    for arg, default in zip(args.kwonlyargs, args.kw_defaults, strict=True):
         parts.append(render(arg, default))
 
     if args.kwarg is not None:

@@ -55,6 +55,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 REFERENCE_PLUGIN = PROJECT_ROOT / "plugins" / "reference"
 DEFAULT_CONFIG = PROJECT_ROOT / "config" / "default.toml"
 
+# B.5 verlangt mindestens fuenf Wiederholungen je Messreihe.
+_MIN_REPEATS_B5 = 5
+
 # Stages der Plugin-Runtime-Pipeline (PL-01..PL-05) in Ausfuehrungsreihenfolge.
 PIPELINE_STAGES = ("PluginDiscoveryStage", "PluginSecurityStage", "PluginActivationStage")
 
@@ -351,8 +354,11 @@ def _reference_system() -> dict[str, str]:
 
 def _git(*args: str) -> str:
     try:
+        executable = shutil.which("git")
+        if executable is None:
+            raise FileNotFoundError("git ist nicht im PATH auffindbar")
         result = subprocess.run(  # noqa: S603 - festes Kommando, keine Nutzereingabe
-            ["git", "--no-optional-locks", *args],
+            [executable, "--no-optional-locks", *args],
             cwd=PROJECT_ROOT,
             capture_output=True,
             text=True,
@@ -615,7 +621,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    if args.repeats < 5:
+    if args.repeats < _MIN_REPEATS_B5:
         print("B.5 verlangt mindestens fuenf Wiederholungen.", file=sys.stderr)
         return 3
     if not REFERENCE_PLUGIN.is_dir():

@@ -20,6 +20,7 @@ from .models import ConfigurationView, DeveloperSummary, LogEntry, PluginStatus
 
 _SECRET = re.compile(r"(secret|token|password|credential|api[_-]?key)\s*[=:]\s*[^\s]+", re.I)
 _SECRET_KEY = re.compile(r"secret|token|password|credential|api[_-]?key", re.I)
+_LOGGER_FIELD_INDEX = 2
 
 
 class DeveloperPlatform:
@@ -134,7 +135,7 @@ class DeveloperPlatform:
                 entries.append(
                     LogEntry(
                         parts[0] if parts else "",
-                        parts[2] if len(parts) > 2 else "",
+                        parts[_LOGGER_FIELD_INDEX] if len(parts) > _LOGGER_FIELD_INDEX else "",
                         scrubbed,
                     )
                 )
