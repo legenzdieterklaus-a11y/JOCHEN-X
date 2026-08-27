@@ -48,7 +48,10 @@ class MigrationManager:
                     )
                 elif row[0] != self.CURRENT_VERSION:
                     raise DatabaseError(f"Unsupported schema version: {row[0]}")
-                connection.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+                connection.execute(
+                    "CREATE TABLE IF NOT EXISTS settings "
+                    "(key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+                )
         finally:
             connection.close()
 
@@ -73,6 +76,10 @@ class SettingsRepository:
         connection = self._connections.connect()
         try:
             with connection:
-                connection.execute("INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
+                connection.execute(
+                    "INSERT INTO settings(key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (key, value),
+                )
         finally:
             connection.close()

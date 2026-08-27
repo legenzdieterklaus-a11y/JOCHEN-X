@@ -535,7 +535,10 @@ def _markdown(report: dict[str, Any]) -> str:
     add(f"| Erhoben am | {report['erhoben_am']} |")
     add(f"| Commit | `{report['bezugszustand']['commit']}` |")
     add(f"| Branch | {report['bezugszustand']['branch']} |")
-    add(f"| Abweichungen am versionierten Bestand | {report['bezugszustand']['working_tree_abweichungen']} |")
+    add(
+        "| Abweichungen am versionierten Bestand "
+        f"| {report['bezugszustand']['working_tree_abweichungen']} |"
+    )
     add(f"| Wiederholungen (warm) | {report['wiederholungen_warm']} |")
     add("")
     add("## Referenzsystem (B.3)")

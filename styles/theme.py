@@ -30,5 +30,7 @@ class ThemeEngine:
     def stylesheet(self, tokens: ThemeTokens) -> str:
         """Create the complete base stylesheet from immutable design tokens."""
         return (f"QWidget {{ background: {tokens.background}; color: {tokens.foreground}; "
-                f"font-family: '{tokens.font_family}'; }} QMainWindow {{ background: {tokens.background}; }} "
-                f"QFrame#surface {{ background: {tokens.surface}; border-radius: {tokens.spacing}px; }}")
+                f"font-family: '{tokens.font_family}'; "
+                f"}} QMainWindow {{ background: {tokens.background}; }} "
+                f"QFrame#surface {{ background: {tokens.surface}; "
+                f"border-radius: {tokens.spacing}px; }}")
