@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from time import time
 import re
@@ -21,6 +22,20 @@ from .models import ConfigurationView, DeveloperSummary, LogEntry, PluginStatus
 _SECRET = re.compile(r"(secret|token|password|credential|api[_-]?key)\s*[=:]\s*[^\s]+", re.I)
 _SECRET_KEY = re.compile(r"secret|token|password|credential|api[_-]?key", re.I)
 _LOGGER_FIELD_INDEX = 2
+
+
+@dataclass(frozen=True, slots=True)
+class SummaryRequest:
+    """Caller-supplied inputs of a summary; the rest is platform state."""
+
+    version: str
+    build: str
+    python: str
+    os_name: str
+    modules: Iterable[str]
+    database_status: str
+    theme: str
+    profile: str
 
 
 class DeveloperPlatform:
@@ -45,33 +60,35 @@ class DeveloperPlatform:
         self._log_file = log_file
         self._started_at = started_at or time()
 
-    def summary(
-        self,
-        *,
-        version: str,
-        build: str,
-        python: str,
-        os_name: str,
-        modules: Iterable[str],
-        database_status: str,
-        theme: str,
-        profile: str,
-    ) -> DeveloperSummary:
+    def summary(self, request: SummaryRequest) -> DeveloperSummary:
+        """Assemble the developer-center overview of the running application.
+
+        Args:
+            request: Identity and environment values supplied by the caller;
+                uptime, service count, and plugin count are derived from the
+                platform's own state.
+
+        Returns:
+            The assembled :class:`DeveloperSummary`.
+
+        Raises:
+            RuntimeError: If the developer platform is disabled.
+        """
         self._require()
         plugins = tuple(self._plugins.discover()) if self._plugins else ()
         return DeveloperSummary(
-            version,
-            build,
-            python,
-            os_name,
+            request.version,
+            request.build,
+            request.python,
+            request.os_name,
             self._started_at,
             time() - self._started_at,
-            tuple(modules),
+            tuple(request.modules),
             len(self.services()),
             len(plugins),
-            database_status,
-            theme,
-            profile,
+            request.database_status,
+            request.theme,
+            request.profile,
         )
 
     def events(self, name_filter: str = "") -> tuple[EventDelivery, ...]:

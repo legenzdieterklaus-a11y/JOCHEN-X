@@ -87,13 +87,22 @@ class ApplicationHost:
         self._app.setStyleSheet(engine.stylesheet(engine.select(settings.theme_mode)))
         developer_center = None
         try:
-            from developer.platform import DeveloperPlatform
+            from developer.platform import DeveloperPlatform, SummaryRequest
             platform = self.services.get(DeveloperPlatform)
             from ui.developer_center import DeveloperCenter
             environment = self.services.get(Environment)
-            summary = platform.summary(version=settings.version, build="local", python=environment.python_version,
-                                       os_name=environment.os_name, modules=("core", "services"),
-                                       database_status="ready", theme=str(settings.theme_mode), profile="default")
+            summary = platform.summary(
+                SummaryRequest(
+                    version=settings.version,
+                    build="local",
+                    python=environment.python_version,
+                    os_name=environment.os_name,
+                    modules=("core", "services"),
+                    database_status="ready",
+                    theme=str(settings.theme_mode),
+                    profile="default",
+                )
+            )
             developer_center = DeveloperCenter(f"{summary.version} · {summary.os_name}")
         except LookupError:
             pass
