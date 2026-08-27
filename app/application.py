@@ -78,6 +78,8 @@ class Application:
             context.logger.info(
                 "application.headless", extra={"context": {"reason": "no window factory"}}
             )
+        if self._app is None:
+            raise RuntimeError("Qt application is unavailable")
         exit_code = self._app.exec()
         self._host.shutdown(exit_code=exit_code)
         return exit_code

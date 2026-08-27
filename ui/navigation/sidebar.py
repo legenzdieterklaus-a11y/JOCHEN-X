@@ -87,6 +87,8 @@ class Sidebar(QFrame):
         """Rebuild sections after dynamic registry changes on the UI thread."""
         while self._content_layout.count():
             item = self._content_layout.takeAt(0)
+            if item is None:
+                break
             widget = item.widget()
             if widget is not None:
                 widget.setParent(None)

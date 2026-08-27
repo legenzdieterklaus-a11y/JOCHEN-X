@@ -36,6 +36,9 @@ class MessageWidget(QWidget):
 
             item = self._box.takeAt(0)
 
+            if item is None:
+                break
+
             widget = item.widget()
 
             if widget:

@@ -242,7 +242,10 @@ def _single_run(root: Path) -> dict[str, Any]:
     #     kein Ersatz fuer PM-03 und nicht Teil der B.6-Messgroessen)
     activation_metric: float | None = None
     try:
-        snapshot = context.metrics.snapshot()
+        metrics = context.metrics
+        if metrics is None:
+            raise RuntimeError("Bootstrap-Kontext ohne Metrics")
+        snapshot = metrics.snapshot()
         for key, value in snapshot.items():
             if key.startswith("plugin.activation.duration_ms"):
                 activation_metric = float(value)
