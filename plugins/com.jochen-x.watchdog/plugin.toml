@@ -1,0 +1,18 @@
+[plugin]
+id = "com.jochen-x.watchdog"
+version = "1.0.0"
+requires_application = "0.9.0"
+api_version = "1.0.0"
+category = "background"
+entry_point = "watchdog"
+
+[plugin.metadata]
+display_name = "Process Watchdog"
+author = "JOCHEN X"
+description = "Monitors local processes and reports when expected processes are not running."
+
+[plugin.permissions]
+capabilities = ["events.publish", "configuration", "system_observation"]
+
+[plugin.dependencies]
+requires = []

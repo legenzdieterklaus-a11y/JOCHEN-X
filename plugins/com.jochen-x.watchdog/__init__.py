@@ -1,0 +1,267 @@
+"""Process Watchdog plugin — monitors local processes and reports missing ones."""
+
+from __future__ import annotations
+
+import subprocess
+import sys
+import threading
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any
+
+from sdk.errors import PluginConfigurationError, PluginLifecycleError, PluginPermissionError
+from sdk.manifest import PluginCategory, PluginMetadata, PluginPermission
+from sdk.plugin import BackgroundPlugin, PluginLifecycleState
+
+__all__ = ["ProcessEntry", "ProcessStatus", "WatchdogPlugin"]
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessEntry:
+    name: str
+    pattern: str
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessStatus:
+    entry: ProcessEntry
+    running: bool
+    pid: int | None
+    last_seen: str | None
+    last_checked: str
+
+
+class WatchdogPlugin(BackgroundPlugin):
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._statuses: dict[str, ProcessStatus] = {}
+        self._lock = threading.Lock()
+
+    def metadata(self) -> PluginMetadata:
+        return PluginMetadata(
+            identifier="com.jochen-x.watchdog",
+            name="Process Watchdog",
+            version="1.0.0",
+            api_version="1.0.0",
+            author="JOCHEN X",
+            description="Monitors local processes and reports when expected processes are not running.",
+            category=PluginCategory.BACKGROUND,
+            permissions=frozenset({
+                PluginPermission.EVENTS_PUBLISH,
+                PluginPermission.CONFIGURATION,
+                PluginPermission.SYSTEM_OBSERVATION,
+            }),
+            minimum_application_version="0.9.0",
+            entry_point="watchdog",
+        )
+
+    def on_initialize(self) -> None:
+        cfg = self.context.config
+        cfg.register_default("processes", [])
+        cfg.register_default("check_interval_seconds", 30)
+        cfg.register_default("report_recovery", True)
+        cfg.register_validator("processes", _validate_processes)
+        cfg.register_validator("check_interval_seconds", _validate_interval)
+        cfg.register_validator("report_recovery", _validate_bool)
+        cfg.load()
+        self.context.logger.info("watchdog.initialized")
+
+    def on_start(self) -> None:
+        entries = self._read_entries()
+        if not entries:
+            self.context.logger.warning("watchdog.empty_process_list")
+        now = _now_iso()
+        result = _enumerate_processes()
+        with self._lock:
+            for entry in entries:
+                pid = _find_process(result, entry.pattern)
+                running = pid is not None
+                self._statuses[entry.name] = ProcessStatus(
+                    entry=entry,
+                    running=running,
+                    pid=pid,
+                    last_seen=now if running else None,
+                    last_checked=now,
+                )
+        self.context.logger.info("watchdog.started")
+
+    def run_background(self, stop_event: threading.Event) -> None:
+        interval = self.context.config.get("check_interval_seconds")
+        report_recovery = self.context.config.get("report_recovery")
+        while not stop_event.is_set():
+            stop_event.wait(interval)
+            if stop_event.is_set():
+                break
+            self._check_cycle(report_recovery)
+
+    def on_stop(self) -> None:
+        with self._lock:
+            self._statuses.clear()
+        self.context.logger.info("watchdog.stopped")
+
+    def on_shutdown(self) -> None:
+        pass
+
+    def current_status(self) -> tuple[ProcessStatus, ...]:
+        if self.state != PluginLifecycleState.STARTED:
+            raise PluginLifecycleError("current_status() requires STARTED state")
+        with self._lock:
+            return tuple(self._statuses.values())
+
+    def _read_entries(self) -> list[ProcessEntry]:
+        raw = self.context.config.get("processes")
+        return [ProcessEntry(name=item["name"], pattern=item["pattern"]) for item in raw]
+
+    def _check_cycle(self, report_recovery: bool) -> None:
+        now = _now_iso()
+        try:
+            result = _enumerate_processes()
+        except Exception:
+            self.context.logger.error("watchdog.enumeration_failed")
+            with self._lock:
+                for name, status in self._statuses.items():
+                    self._statuses[name] = ProcessStatus(
+                        entry=status.entry,
+                        running=False,
+                        pid=None,
+                        last_seen=status.last_seen,
+                        last_checked=now,
+                    )
+            return
+
+        entries = self._read_entries()
+        running_count = 0
+        missing_count = 0
+
+        with self._lock:
+            for entry in entries:
+                pid = _find_process(result, entry.pattern)
+                was_running = self._statuses.get(entry.name)
+                was_up = was_running.running if was_running else False
+                is_up = pid is not None
+
+                if is_up:
+                    running_count += 1
+                    last_seen = now
+                else:
+                    missing_count += 1
+                    last_seen = was_running.last_seen if was_running else None
+
+                self._statuses[entry.name] = ProcessStatus(
+                    entry=entry,
+                    running=is_up,
+                    pid=pid,
+                    last_seen=last_seen,
+                    last_checked=now,
+                )
+
+                if was_up and not is_up:
+                    self._try_publish("com.jochen-x.watchdog.process.down", {
+                        "name": entry.name,
+                        "pattern": entry.pattern,
+                        "last_seen": was_running.last_seen if was_running else None,
+                    })
+                elif not was_up and is_up and report_recovery:
+                    self._try_publish("com.jochen-x.watchdog.process.up", {
+                        "name": entry.name,
+                        "pattern": entry.pattern,
+                        "pid": pid,
+                    })
+
+        self._try_publish("com.jochen-x.watchdog.cycle.complete", {
+            "timestamp": now,
+            "total": len(entries),
+            "running": running_count,
+            "missing": missing_count,
+        })
+
+    def _try_publish(self, name: str, payload: dict[str, Any]) -> None:
+        try:
+            self.context.events.publish(name, payload)
+        except PluginPermissionError:
+            self.context.logger.error("watchdog.publish_denied", event=name)
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _validate_processes(value: Any) -> None:
+    if not isinstance(value, list):
+        raise PluginConfigurationError("processes must be a list")
+    for item in value:
+        if not isinstance(item, dict):
+            raise PluginConfigurationError("each process entry must be a dict")
+        if "name" not in item or "pattern" not in item:
+            raise PluginConfigurationError("each process entry must have 'name' and 'pattern'")
+        if not isinstance(item["name"], str) or not item["name"]:
+            raise PluginConfigurationError("process 'name' must be a non-empty string")
+        if not isinstance(item["pattern"], str) or not item["pattern"]:
+            raise PluginConfigurationError("process 'pattern' must be a non-empty string")
+
+
+def _validate_interval(value: Any) -> None:
+    if not isinstance(value, int) or value <= 0:
+        raise PluginConfigurationError("check_interval_seconds must be a positive integer")
+
+
+def _validate_bool(value: Any) -> None:
+    if not isinstance(value, bool):
+        raise PluginConfigurationError("report_recovery must be a bool")
+
+
+def _enumerate_processes() -> list[tuple[int, str]]:
+    if sys.platform == "win32":
+        return _enumerate_windows()
+    return _enumerate_posix()
+
+
+def _enumerate_windows() -> list[tuple[int, str]]:
+    proc = subprocess.run(
+        ["tasklist", "/FO", "CSV", "/NH"],
+        capture_output=True,
+        text=True,
+    )
+    entries: list[tuple[int, str]] = []
+    for line in proc.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split('","')
+        if len(parts) >= 2:
+            name = parts[0].strip('"')
+            try:
+                pid = int(parts[1].strip('"'))
+            except ValueError:
+                continue
+            entries.append((pid, name))
+    return entries
+
+
+def _enumerate_posix() -> list[tuple[int, str]]:
+    proc = subprocess.run(
+        ["ps", "-eo", "pid,comm"],
+        capture_output=True,
+        text=True,
+    )
+    entries: list[tuple[int, str]] = []
+    for line in proc.stdout.splitlines()[1:]:
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split(None, 1)
+        if len(parts) == 2:
+            try:
+                pid = int(parts[0])
+            except ValueError:
+                continue
+            entries.append((pid, parts[1]))
+    return entries
+
+
+def _find_process(processes: list[tuple[int, str]], pattern: str) -> int | None:
+    for pid, name in processes:
+        if pattern in name:
+            return pid
+    return None
