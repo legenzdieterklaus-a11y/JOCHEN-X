@@ -45,6 +45,9 @@ htmlcov/
 # Ruff
 .ruff_cache/
 
+# Local Configuration
+config/profile.toml
+
 # Environment
 .env
 .env.*
