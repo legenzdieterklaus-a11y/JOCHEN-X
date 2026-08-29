@@ -666,9 +666,13 @@ Permissions are declared in the manifest (`capabilities`) and mirrored as
 `PluginPermission` values in `PluginMetadata.permissions`. The host policy
 is **default-deny** (ADR-006): a capability that is neither wildcard- nor
 plugin-granted is denied, and plugins with denied capabilities are rejected
-before activation (PL-03). Declared permissions gate the runtime façades —
-undeclared capabilities are refused by the context even when the underlying
-service exists.
+before activation (PL-03). Declared permissions gate `PluginEventBus`
+(`events.publish`, `events.subscribe`) and `PluginServices` (`services`) —
+undeclared capabilities are refused at these façades even when the
+underlying service exists. `PluginConfig` and `PluginResources` do not
+enforce permission checks at runtime. The remaining five permissions
+(`network`, `filesystem`, `credentials`, `system_observation`, `ui`) have
+no corresponding SDK façade that could serve as an enforcement point.
 
 | `PluginPermission` | Value | Grants |
 |---|---|---|
