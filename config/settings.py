@@ -82,6 +82,19 @@ class ConfigurationService:
             "\n\n[database]\npath = " + repr(data["database_path"]) +
             "\n\n[plugins]\ndirectory = " + repr(data["plugin_directory"]) + "\n", encoding="utf-8")
 
+    def profile_section(self, *keys: str) -> dict[str, object]:
+        """Read a nested section from the profile file only, bypassing defaults."""
+        if not self._profile_path or not self._profile_path.exists():
+            return {}
+        raw: object = self._read(self._profile_path)
+        for key in keys:
+            if not isinstance(raw, dict):
+                return {}
+            raw = raw.get(key)
+            if raw is None:
+                return {}
+        return raw if isinstance(raw, dict) else {}
+
     @staticmethod
     def _read(path: Path) -> dict[str, object]:
         try:

@@ -416,7 +416,7 @@ class PluginSecurityStage:
 
     def execute(self, context: BootstrapContext) -> None:
         from app.security.events import PluginRejected
-        from app.security.plugin_security import PluginSecurity
+        from app.security.plugin_security import PermissionPolicy, PluginSecurity
 
         events = _require(context.events, "events")
         registry = _require(context.registry, "registry")
@@ -424,7 +424,12 @@ class PluginSecurityStage:
         try:
             security = registry.get(PluginSecurity)
         except LookupError:
-            security = PluginSecurity(events, logger=logger)
+            policy = PermissionPolicy()
+            if context.configuration is not None:
+                policy_config = context.configuration.profile_section("security", "plugins")
+                if policy_config:
+                    policy = PermissionPolicy.from_config(policy_config)
+            security = PluginSecurity(events, logger=logger, permission_policy=policy)
             registry.register(PluginSecurity, security)
 
         host_api = ApiVersion.parse(SDK_API_VERSION)
