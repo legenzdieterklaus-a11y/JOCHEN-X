@@ -40,7 +40,7 @@ class WatchdogPlugin(BackgroundPlugin):
 
     def metadata(self) -> PluginMetadata:
         return PluginMetadata(
-            identifier="com.jochen-x.watchdog",
+            identifier="com_jochen_x_watchdog",
             name="Process Watchdog",
             version="1.0.0",
             api_version="1.0.0",

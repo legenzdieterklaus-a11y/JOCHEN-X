@@ -10,7 +10,7 @@ import pytest
 
 from sdk.errors import PluginConfigurationError
 
-_PLUGIN_DIR = Path(__file__).resolve().parent.parent / "plugins" / "com.jochen-x.watchdog"
+_PLUGIN_DIR = Path(__file__).resolve().parent.parent / "plugins" / "com_jochen_x_watchdog"
 _spec = importlib.util.spec_from_file_location(
     "watchdog_plugin", _PLUGIN_DIR / "__init__.py",
 )
@@ -119,6 +119,6 @@ class TestWatchdogMetadata:
     def test_metadata(self) -> None:
         plugin = WatchdogPlugin()
         meta = plugin.metadata()
-        assert meta.identifier == "com.jochen-x.watchdog"
+        assert meta.identifier == "com_jochen_x_watchdog"
         assert meta.version == "1.0.0"
         assert meta.category.value == "background"

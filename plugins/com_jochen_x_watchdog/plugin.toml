@@ -1,5 +1,5 @@
 [plugin]
-id = "com.jochen-x.watchdog"
+id = "com_jochen_x_watchdog"
 version = "1.0.0"
 requires_application = "0.9.0"
 api_version = "1.0.0"
