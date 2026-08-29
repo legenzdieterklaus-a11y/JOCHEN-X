@@ -23,9 +23,11 @@ from pathlib import Path
 from threading import RLock
 from typing import Any, Protocol, TypeVar, cast, runtime_checkable
 
-from sdk.errors import PluginConfigurationError
+from sdk.errors import PluginConfigurationError, PluginPermissionError
+from sdk.manifest import PluginPermission
 
 Validator = Callable[[Any], None]
+ConfigPermissionCheck = Callable[[PluginPermission], None]
 """A callable that raises on invalid configuration values."""
 
 T = TypeVar("T")
@@ -145,6 +147,7 @@ class PluginConfig:
         *,
         defaults: Mapping[str, Any] | None = None,
         validators: Mapping[str, Validator] | None = None,
+        permission_check: ConfigPermissionCheck | None = None,
     ) -> None:
         """Create the configuration store.
 
@@ -153,6 +156,8 @@ class PluginConfig:
             storage: The storage backend used by :meth:`load` and :meth:`save`.
             defaults: Immutable default values returned when a key is missing.
             validators: Optional per-key validators invoked on :meth:`set`.
+            permission_check: Optional callable invoked before data access.
+                Raises :class:`PluginPermissionError` on denial.
 
         Raises:
             ValueError: If ``plugin_id`` is empty.
@@ -165,6 +170,7 @@ class PluginConfig:
         self._validators: dict[str, Validator] = dict(validators or {})
         self._values: dict[str, Any] = {}
         self._lock = RLock()
+        self._permission_check = permission_check
         for key, value in self._defaults.items():
             self._validate(key, value)
 
@@ -200,6 +206,7 @@ class PluginConfig:
             KeyError: If ``key`` has no value, no registered default, and no
                 caller-supplied default.
         """
+        self._ensure_permission()
         with self._lock:
             if key in self._values:
                 return self._values[key]
@@ -220,6 +227,7 @@ class PluginConfig:
             PluginConfigurationError: If ``key`` is empty or ``value`` fails
                 validation.
         """
+        self._ensure_permission()
         if not key:
             raise PluginConfigurationError("Configuration key must be non-empty")
         self._validate(key, value)
@@ -236,7 +244,7 @@ class PluginConfig:
             PluginConfigurationError: If any value fails validation; no
                 changes are applied.
         """
-        # Validate everything first so the update is transactional.
+        self._ensure_permission()
         for key, value in values.items():
             if not key:
                 raise PluginConfigurationError("Configuration key must be non-empty")
@@ -246,6 +254,7 @@ class PluginConfig:
 
     def delete(self, key: str) -> None:
         """Remove ``key`` from the runtime state; defaults are unaffected."""
+        self._ensure_permission()
         with self._lock:
             self._values.pop(key, None)
 
@@ -274,6 +283,7 @@ class PluginConfig:
         The snapshot merges defaults with runtime overrides. Runtime values
         take precedence over defaults for the same key.
         """
+        self._ensure_permission()
         with self._lock:
             merged: dict[str, Any] = {}
             merged.update(self._defaults)
@@ -287,6 +297,7 @@ class PluginConfig:
             PluginConfigurationError: If the persisted payload is not a
                 mapping or contains an invalid value.
         """
+        self._ensure_permission()
         data = self._storage.read(self._plugin_id)
         if not isinstance(data, Mapping):
             raise PluginConfigurationError(
@@ -299,6 +310,7 @@ class PluginConfig:
 
     def save(self) -> None:
         """Persist the current runtime values via the storage backend."""
+        self._ensure_permission()
         with self._lock:
             payload = dict(self._values)
         self._storage.write(self._plugin_id, payload)
@@ -307,6 +319,10 @@ class PluginConfig:
         """Return the tuple of keys that have registered defaults."""
         with self._lock:
             return tuple(self._defaults.keys())
+
+    def _ensure_permission(self) -> None:
+        if self._permission_check is not None:
+            self._permission_check(PluginPermission.CONFIGURATION)
 
     def _validate(self, key: str, value: Any) -> None:
         """Apply the registered validator for ``key`` if any is defined."""

@@ -14,7 +14,12 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from sdk.errors import PluginResourceError
+from collections.abc import Callable
+
+from sdk.errors import PluginPermissionError, PluginResourceError
+from sdk.manifest import PluginPermission
+
+ResourcePermissionCheck = Callable[[PluginPermission], None]
 
 _ICONS_DIRECTORY = "icons"
 _ASSETS_DIRECTORY = "assets"
@@ -25,14 +30,21 @@ _TRANSLATION_SUFFIX = ".json"
 class PluginResources:
     """Resolve and read files under a plugin's private resource root."""
 
-    __slots__ = ("_root",)
+    __slots__ = ("_permission_check", "_root")
 
-    def __init__(self, root: Path) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        permission_check: ResourcePermissionCheck | None = None,
+    ) -> None:
         """Create the resource façade rooted at ``root``.
 
         Args:
             root: Existing directory that owns the plugin's static resources.
                 The directory is created if missing.
+            permission_check: Optional callable invoked before resource access.
+                Raises :class:`PluginPermissionError` on denial.
 
         Raises:
             PluginResourceError: If ``root`` cannot be created or is not a
@@ -48,6 +60,7 @@ class PluginResources:
         if not resolved.is_dir():
             raise PluginResourceError(f"Resource root is not a directory: {resolved}")
         self._root = resolved.resolve()
+        self._permission_check = permission_check
 
     @property
     def root(self) -> Path:
@@ -67,6 +80,8 @@ class PluginResources:
         Raises:
             PluginResourceError: If the resolved path escapes the root.
         """
+        if self._permission_check is not None:
+            self._permission_check(PluginPermission.RESOURCES)
         for part in parts:
             if not isinstance(part, str) or not part:
                 raise PluginResourceError("Path components must be non-empty strings")

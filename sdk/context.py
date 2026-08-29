@@ -253,8 +253,12 @@ class PluginContextBuilder:
             self._config_storage,
             defaults=self._config_defaults,
             validators=self._config_validators,
+            permission_check=permission_check,
         )
-        resources = PluginResources(self._resources_root)
+        resources = PluginResources(
+            self._resources_root,
+            permission_check=permission_check,
+        )
         extensions = PluginExtensions(plugin_id, self._extension_registrar)
 
         metadata_view: dict[str, Any] = {
