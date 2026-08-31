@@ -85,6 +85,7 @@ class WatchdogPlugin(BackgroundPlugin):
                     last_checked=now,
                 )
         self.context.logger.info("watchdog.started")
+        super().on_start()
 
     def run_background(self, stop_event: threading.Event) -> None:
         interval = self.context.config.get("check_interval_seconds")
@@ -96,6 +97,7 @@ class WatchdogPlugin(BackgroundPlugin):
             self._check_cycle(report_recovery)
 
     def on_stop(self) -> None:
+        super().on_stop()
         with self._lock:
             self._statuses.clear()
         self.context.logger.info("watchdog.stopped")
