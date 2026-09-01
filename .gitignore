@@ -48,6 +48,9 @@ htmlcov/
 # Local Configuration
 config/profile.toml
 
+# Plugin Configuration (runtime-generated, not version-controlled)
+plugins/*/*.json
+
 # Environment
 .env
 .env.*
