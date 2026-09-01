@@ -78,7 +78,7 @@ class MonitoringStateCollector:
                 since=timestamp,
                 transitions=0,
             )
-        else:
+        elif previous != status:
             state = MonitoringState(
                 host_id=host_id,
                 subject=subject,
@@ -88,6 +88,8 @@ class MonitoringStateCollector:
                 since=timestamp,
                 transitions=existing.transitions + 1,
             )
+        else:
+            return
 
         if previous != status:
             self._log_transition(host_id, subject, previous, status, timestamp)
