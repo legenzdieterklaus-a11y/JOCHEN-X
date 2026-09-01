@@ -1,9 +1,23 @@
 """SQLite connection, migration, and settings repository."""
 
 import sqlite3
+from dataclasses import dataclass
 from pathlib import Path
 
 from core.exceptions import DatabaseError
+
+
+@dataclass(frozen=True, slots=True)
+class MonitoringState:
+    """Immutable snapshot of one monitored subject's state."""
+
+    host_id: str
+    subject: str
+    status: str
+    first_seen: str
+    last_seen: str | None
+    since: str
+    transitions: int
 
 
 class ConnectionManager:
@@ -52,6 +66,14 @@ class MigrationManager:
                     "CREATE TABLE IF NOT EXISTS settings "
                     "(key TEXT PRIMARY KEY, value TEXT NOT NULL)"
                 )
+                connection.execute(
+                    "CREATE TABLE IF NOT EXISTS monitoring_state "
+                    "(host_id TEXT NOT NULL, subject TEXT NOT NULL, "
+                    "status TEXT NOT NULL, first_seen TEXT NOT NULL, "
+                    "last_seen TEXT, since TEXT NOT NULL, "
+                    "transitions INTEGER NOT NULL DEFAULT 0, "
+                    "PRIMARY KEY (host_id, subject))"
+                )
         finally:
             connection.close()
 
@@ -83,3 +105,56 @@ class SettingsRepository:
                 )
         finally:
             connection.close()
+
+
+class MonitoringStateRepository:
+    """Persists monitoring state snapshots keyed by host and subject."""
+
+    def __init__(self, connections: ConnectionManager) -> None:
+        self._connections = connections
+
+    def upsert(self, state: MonitoringState) -> None:
+        """Insert or update a monitoring state record."""
+        connection = self._connections.connect()
+        try:
+            with connection:
+                connection.execute(
+                    "INSERT INTO monitoring_state"
+                    "(host_id, subject, status, first_seen, last_seen, since, transitions) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(host_id, subject) DO UPDATE SET "
+                    "status=excluded.status, last_seen=excluded.last_seen, "
+                    "since=excluded.since, transitions=excluded.transitions",
+                    (state.host_id, state.subject, state.status,
+                     state.first_seen, state.last_seen, state.since,
+                     state.transitions),
+                )
+        finally:
+            connection.close()
+
+    def all(self) -> tuple[MonitoringState, ...]:
+        """Return every persisted monitoring state."""
+        connection = self._connections.connect()
+        try:
+            rows = connection.execute(
+                "SELECT host_id, subject, status, first_seen, last_seen, "
+                "since, transitions FROM monitoring_state "
+                "ORDER BY host_id, subject"
+            ).fetchall()
+        finally:
+            connection.close()
+        return tuple(MonitoringState(*row) for row in rows)
+
+    def for_host(self, host_id: str) -> tuple[MonitoringState, ...]:
+        """Return monitoring states for a single host."""
+        connection = self._connections.connect()
+        try:
+            rows = connection.execute(
+                "SELECT host_id, subject, status, first_seen, last_seen, "
+                "since, transitions FROM monitoring_state "
+                "WHERE host_id = ? ORDER BY subject",
+                (host_id,),
+            ).fetchall()
+        finally:
+            connection.close()
+        return tuple(MonitoringState(*row) for row in rows)
