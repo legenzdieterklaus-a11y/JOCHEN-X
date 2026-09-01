@@ -15,6 +15,7 @@ from app.bootstrap import (
     default_stages,
 )
 from app.security import SecurityBootstrapStage, SecurityManager
+from services.monitoring import MonitoringBootstrapStage
 from app.security.permission_manager import PermissionManager
 from ui.navigation.navigation_models import (
     NavigationItemModel,
@@ -145,6 +146,7 @@ def create_desktop_bootstrap_manager() -> BootstrapManager:
     return BootstrapManager(
         stages=(
             *without_di,
+            MonitoringBootstrapStage(),
             SecurityBootstrapStage(),
             NavigationBootstrapStage(),
             DependencyInjectionStage(),
