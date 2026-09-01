@@ -23,6 +23,7 @@ class NavigationId(StrEnum):
     DEVELOPER = "developer"
     ANALYTICS = "analytics"
     SETTINGS = "settings"
+    MONITORING = "monitoring"
 
 
 class NavigationGroup(StrEnum):
@@ -46,6 +47,7 @@ class NavigationIcon(StrEnum):
     DEVELOPER = "developer"
     ANALYTICS = "analytics"
     SETTINGS = "settings"
+    MONITORING = "monitoring"
 
 
 @dataclass(frozen=True, slots=True)

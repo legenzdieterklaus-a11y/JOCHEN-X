@@ -18,6 +18,7 @@ _STANDARD_ICONS: dict[NavigationIcon, QStyle.StandardPixmap] = {
     NavigationIcon.DEVELOPER: QStyle.StandardPixmap.SP_DesktopIcon,
     NavigationIcon.ANALYTICS: QStyle.StandardPixmap.SP_FileDialogListView,
     NavigationIcon.SETTINGS: QStyle.StandardPixmap.SP_FileDialogContentsView,
+    NavigationIcon.MONITORING: QStyle.StandardPixmap.SP_DialogApplyButton,
 }
 
 

@@ -519,7 +519,7 @@ class MainWindowIntegrationTests(QtTestCase):
                         for event in context.events.history()
                     )
                 )
-                self.assertEqual(len(window.sidebar.findChildren(NavigationItem)), 9)
+                self.assertEqual(len(window.sidebar.findChildren(NavigationItem)), 10)
                 window.navigation_controller.navigate("plugins")
                 self.assertEqual(window.module_host.active_identifier, "plugins")
                 self.assertEqual(host.state, ApplicationState.READY)

@@ -12,7 +12,9 @@ from app.concurrency import WorkerPool
 from app.context import ApplicationContext
 from app.security import Permission, SecurityManager
 from plugins.loader import PluginCatalog
+from services.monitoring import MonitoringStateCollector
 from ui.chat_page import ChatPage
+from ui.monitoring_page import MonitoringPage
 from ui.navigation.dashboard_page import DashboardPage
 from ui.navigation.layout_manager import LayoutManager
 from ui.navigation.module_host import ModuleHost, ModulePlaceholder
@@ -228,6 +230,15 @@ def _builtin_registrations(
             NavigationGroup.SYSTEM,
         ),
     )
+    monitoring_item = _item(
+        NavigationId.MONITORING,
+        "Monitoring",
+        "Live view of monitored subjects and their status.",
+        NavigationIcon.MONITORING,
+        5,
+        NavigationGroup.PLATFORM,
+    )
+    collector = context.services.get(MonitoringStateCollector)
     registrations = [
         NavigationRegistration(
             dashboard_item,
@@ -239,6 +250,10 @@ def _builtin_registrations(
             ),
         ),
         NavigationRegistration(chat_item, ChatPage),
+        NavigationRegistration(
+            monitoring_item,
+            lambda: MonitoringPage(collector, context.events),
+        ),
     ]
     registrations.extend(
         NavigationRegistration(item, _placeholder_factory(item))
