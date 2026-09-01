@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import platform
 import subprocess
 import sys
 import threading
@@ -36,6 +37,7 @@ class WatchdogPlugin(BackgroundPlugin):
     def __init__(self) -> None:
         super().__init__()
         self._statuses: dict[str, ProcessStatus] = {}
+        self._status_map: dict[str, str] = {}
         self._lock = threading.Lock()
 
     def metadata(self) -> PluginMetadata:
@@ -63,6 +65,7 @@ class WatchdogPlugin(BackgroundPlugin):
         cfg.register_default("report_recovery", True)
         cfg.register_validator("processes", _validate_processes)
         cfg.register_validator("check_interval_seconds", _validate_interval)
+        cfg.register_default("host_id", platform.node())
         cfg.register_validator("report_recovery", _validate_bool)
         cfg.load()
         self.context.logger.info("watchdog.initialized")
@@ -84,22 +87,25 @@ class WatchdogPlugin(BackgroundPlugin):
                     last_seen=now if running else None,
                     last_checked=now,
                 )
+                status = "running" if running else "missing"
+                self._status_map[entry.name] = status
+                self._publish_state_changed(entry.name, status, "unknown", now)
         self.context.logger.info("watchdog.started")
         super().on_start()
 
     def run_background(self, stop_event: threading.Event) -> None:
         interval = self.context.config.get("check_interval_seconds")
-        report_recovery = self.context.config.get("report_recovery")
         while not stop_event.is_set():
             stop_event.wait(interval)
             if stop_event.is_set():
                 break
-            self._check_cycle(report_recovery)
+            self._check_cycle()
 
     def on_stop(self) -> None:
         super().on_stop()
         with self._lock:
             self._statuses.clear()
+            self._status_map.clear()
         self.context.logger.info("watchdog.stopped")
 
     def on_shutdown(self) -> None:
@@ -115,7 +121,7 @@ class WatchdogPlugin(BackgroundPlugin):
         raw = self.context.config.get("processes")
         return [ProcessEntry(name=item["name"], pattern=item["pattern"]) for item in raw]
 
-    def _check_cycle(self, report_recovery: bool) -> None:
+    def _check_cycle(self) -> None:
         now = _now_iso()
         try:
             result = _enumerate_processes()
@@ -130,25 +136,20 @@ class WatchdogPlugin(BackgroundPlugin):
                         last_seen=status.last_seen,
                         last_checked=now,
                     )
+                    previous = self._status_map.get(name, "unknown")
+                    if previous != "unknown":
+                        self._status_map[name] = "unknown"
+                        self._publish_state_changed(name, "unknown", previous, now)
             return
 
         entries = self._read_entries()
-        running_count = 0
-        missing_count = 0
 
         with self._lock:
             for entry in entries:
                 pid = _find_process(result, entry.pattern)
                 was_running = self._statuses.get(entry.name)
-                was_up = was_running.running if was_running else False
                 is_up = pid is not None
-
-                if is_up:
-                    running_count += 1
-                    last_seen = now
-                else:
-                    missing_count += 1
-                    last_seen = was_running.last_seen if was_running else None
+                last_seen = now if is_up else (was_running.last_seen if was_running else None)
 
                 self._statuses[entry.name] = ProcessStatus(
                     entry=entry,
@@ -158,24 +159,22 @@ class WatchdogPlugin(BackgroundPlugin):
                     last_checked=now,
                 )
 
-                if was_up and not is_up:
-                    self._try_publish("com.jochen-x.watchdog.process.down", {
-                        "name": entry.name,
-                        "pattern": entry.pattern,
-                        "last_seen": was_running.last_seen if was_running else None,
-                    })
-                elif not was_up and is_up and report_recovery:
-                    self._try_publish("com.jochen-x.watchdog.process.up", {
-                        "name": entry.name,
-                        "pattern": entry.pattern,
-                        "pid": pid,
-                    })
+                new_status = "running" if is_up else "missing"
+                previous = self._status_map.get(entry.name, "unknown")
+                if new_status != previous:
+                    self._status_map[entry.name] = new_status
+                    self._publish_state_changed(entry.name, new_status, previous, now)
 
-        self._try_publish("com.jochen-x.watchdog.cycle.complete", {
-            "timestamp": now,
-            "total": len(entries),
-            "running": running_count,
-            "missing": missing_count,
+    def _publish_state_changed(
+        self, subject: str, status: str, previous: str, timestamp: str,
+    ) -> None:
+        host_id = self.context.config.get("host_id")
+        self._try_publish("monitoring.state_changed", {
+            "host_id": host_id,
+            "subject": subject,
+            "status": status,
+            "previous": previous,
+            "timestamp": timestamp,
         })
 
     def _try_publish(self, name: str, payload: dict[str, Any]) -> None:
