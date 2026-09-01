@@ -137,6 +137,29 @@ class MonitoringStateCollectorTests(unittest.TestCase):
             self._publish("proc_a", "missing", "unknown", "T1")
         self.assertTrue(any("monitoring.state_changed" in m for m in cm.output))
 
+    def test_running_to_missing_logs_warning(self) -> None:
+        self._publish("proc_a", "running", "unknown", "T1")
+        with self.assertLogs(self.logger, level="WARNING") as cm:
+            self._publish("proc_a", "missing", "running", "T2")
+        self.assertTrue(any(
+            "WARNING" in m and "monitoring.state_changed" in m
+            for m in cm.output
+        ))
+
+    def test_missing_to_running_logs_info(self) -> None:
+        self._publish("proc_a", "missing", "unknown", "T1")
+        with self.assertLogs(self.logger, level="INFO") as cm:
+            self._publish("proc_a", "running", "missing", "T2")
+        self.assertTrue(all(
+            "WARNING" not in m
+            for m in cm.output
+            if "monitoring.state_changed" in m
+        ))
+        self.assertTrue(any(
+            "INFO" in m and "monitoring.state_changed" in m
+            for m in cm.output
+        ))
+
     def test_same_status_not_persisted_to_repository(self) -> None:
         self._publish("proc_a", "running", "unknown", "T1")
         self.assertEqual(len(self.repo.all()), 1)
