@@ -66,6 +66,7 @@ class MonitoringStateCollector:
         timestamp = payload.get("timestamp", "")
         key = (host_id, subject)
         existing = self._cache.get(key)
+        previous = existing.status if existing is not None else "unknown"
 
         if existing is None:
             state = MonitoringState(
@@ -88,8 +89,35 @@ class MonitoringStateCollector:
                 transitions=existing.transitions + 1,
             )
 
+        if previous != status:
+            self._log_transition(host_id, subject, previous, status, timestamp)
+
         self._cache[key] = state
         self._repository.upsert(state)
+
+    def _log_transition(
+        self,
+        host_id: str,
+        subject: str,
+        previous: str,
+        status: str,
+        timestamp: str,
+    ) -> None:
+        ctx = {
+            "host_id": host_id,
+            "subject": subject,
+            "previous": previous,
+            "status": status,
+            "timestamp": timestamp,
+        }
+        if status == "unknown" or (previous == "running" and status == "missing"):
+            self._logger.warning(
+                "monitoring.state_changed", extra={"context": ctx},
+            )
+        else:
+            self._logger.info(
+                "monitoring.state_changed", extra={"context": ctx},
+            )
 
 
 @dataclass(frozen=True, slots=True)
