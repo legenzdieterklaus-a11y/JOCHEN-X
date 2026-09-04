@@ -1,4 +1,4 @@
-"""Process Watchdog plugin — monitors local processes and reports missing ones."""
+"""Process Watchdog plugin — monitors local processes and scheduled tasks."""
 
 from __future__ import annotations
 
@@ -21,7 +21,8 @@ __all__ = ["ProcessEntry", "ProcessStatus", "WatchdogPlugin"]
 @dataclass(frozen=True, slots=True)
 class ProcessEntry:
     name: str
-    pattern: str
+    pattern: str | None = None
+    task: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +32,10 @@ class ProcessStatus:
     pid: int | None
     last_seen: str | None
     last_checked: str
+    status: str = "unknown"
+    process_signal: str | None = None
+    task_signal: str | None = None
+    last_task_result: int | None = None
 
 
 class WatchdogPlugin(BackgroundPlugin):
@@ -84,17 +89,29 @@ class WatchdogPlugin(BackgroundPlugin):
             )
         with self._lock:
             for entry in entries:
-                is_up, pid = self._resolve_match(entry, result)
+                merged, pid, proc_sig, task_sig, task_result = self._evaluate_entry(
+                    entry, result,
+                )
+                is_up = merged == "running"
                 self._statuses[entry.name] = ProcessStatus(
                     entry=entry,
                     running=is_up,
                     pid=pid,
                     last_seen=now if is_up else None,
                     last_checked=now,
+                    status=merged,
+                    process_signal=proc_sig,
+                    task_signal=task_sig,
+                    last_task_result=task_result,
                 )
-                status = "running" if is_up else "missing"
-                self._status_map[entry.name] = status
-                self._publish_state_changed(entry.name, status, "unknown", now)
+                self._status_map[entry.name] = merged
+                if merged == "unobservable":
+                    self.context.logger.warning(
+                        "watchdog.unobservable",
+                        subject=entry.name,
+                        previous="unknown",
+                    )
+                self._publish_state_changed(entry.name, merged, "unknown", now)
         self.context.logger.info("watchdog.started")
         super().on_start()
 
@@ -125,28 +142,53 @@ class WatchdogPlugin(BackgroundPlugin):
 
     def _read_entries(self) -> list[ProcessEntry]:
         raw = self.context.config.get("processes")
-        return [ProcessEntry(name=item["name"], pattern=item["pattern"]) for item in raw]
+        return [
+            ProcessEntry(
+                name=item["name"],
+                pattern=item.get("pattern"),
+                task=item.get("task"),
+            )
+            for item in raw
+        ]
+
+    def _evaluate_entry(
+        self,
+        entry: ProcessEntry,
+        processes: list[tuple[int, str, str]],
+        process_available: bool = True,
+    ) -> tuple[str, int | None, str | None, str | None, int | None]:
+        proc_signal: str | None = None
+        task_signal: str | None = None
+        pid: int | None = None
+        task_result: int | None = None
+
+        if entry.pattern is not None:
+            if process_available:
+                is_up, pid = self._resolve_match(entry, processes)
+                proc_signal = "running" if is_up else "missing"
+            elif entry.task is None:
+                return "unknown", None, None, None, None
+            else:
+                proc_signal = "unobservable"
+
+        if entry.task is not None:
+            task_signal, task_result = _query_task(entry.task)
+
+        merged = _merge_signals(task_signal, proc_signal)
+        return merged, pid, proc_signal, task_signal, task_result
 
     def _check_cycle(self) -> None:
         now = _now_iso()
+        processes: list[tuple[int, str, str]] = []
+        process_available = True
+
         try:
             result, fallback_reason = _enumerate_processes()
+            processes = result
         except Exception:
             self.context.logger.error("watchdog.enumeration_failed")
-            with self._lock:
-                for name, status in self._statuses.items():
-                    self._statuses[name] = ProcessStatus(
-                        entry=status.entry,
-                        running=False,
-                        pid=None,
-                        last_seen=status.last_seen,
-                        last_checked=now,
-                    )
-                    previous = self._status_map.get(name, "unknown")
-                    if previous != "unknown":
-                        self._status_map[name] = "unknown"
-                        self._publish_state_changed(name, "unknown", previous, now)
-            return
+            process_available = False
+            fallback_reason = None
 
         if fallback_reason is not None:
             self.context.logger.warning(
@@ -157,9 +199,12 @@ class WatchdogPlugin(BackgroundPlugin):
 
         with self._lock:
             for entry in entries:
-                is_up, pid = self._resolve_match(entry, result)
-                was_running = self._statuses.get(entry.name)
-                last_seen = now if is_up else (was_running.last_seen if was_running else None)
+                merged, pid, proc_sig, task_sig, task_result = self._evaluate_entry(
+                    entry, processes, process_available,
+                )
+                was = self._statuses.get(entry.name)
+                is_up = merged == "running"
+                last_seen = now if is_up else (was.last_seen if was else None)
 
                 self._statuses[entry.name] = ProcessStatus(
                     entry=entry,
@@ -167,13 +212,22 @@ class WatchdogPlugin(BackgroundPlugin):
                     pid=pid,
                     last_seen=last_seen,
                     last_checked=now,
+                    status=merged,
+                    process_signal=proc_sig,
+                    task_signal=task_sig,
+                    last_task_result=task_result,
                 )
 
-                new_status = "running" if is_up else "missing"
                 previous = self._status_map.get(entry.name, "unknown")
-                if new_status != previous:
-                    self._status_map[entry.name] = new_status
-                    self._publish_state_changed(entry.name, new_status, previous, now)
+                if merged != previous:
+                    self._status_map[entry.name] = merged
+                    if merged == "unobservable":
+                        self.context.logger.warning(
+                            "watchdog.unobservable",
+                            subject=entry.name,
+                            previous=previous,
+                        )
+                    self._publish_state_changed(entry.name, merged, previous, now)
 
     def _resolve_match(
         self, entry: ProcessEntry, processes: list[tuple[int, str, str]],
@@ -237,12 +291,22 @@ def _validate_processes(value: Any) -> None:
     for item in value:
         if not isinstance(item, dict):
             raise PluginConfigurationError("each process entry must be a dict")
-        if "name" not in item or "pattern" not in item:
-            raise PluginConfigurationError("each process entry must have 'name' and 'pattern'")
+        if "name" not in item:
+            raise PluginConfigurationError("each process entry must have 'name'")
         if not isinstance(item["name"], str) or not item["name"]:
             raise PluginConfigurationError("process 'name' must be a non-empty string")
-        if not isinstance(item["pattern"], str) or not item["pattern"]:
-            raise PluginConfigurationError("process 'pattern' must be a non-empty string")
+        has_pattern = "pattern" in item
+        has_task = "task" in item
+        if not has_pattern and not has_task:
+            raise PluginConfigurationError(
+                "each process entry must have 'pattern', 'task', or both",
+            )
+        if has_pattern:
+            if not isinstance(item["pattern"], str) or not item["pattern"]:
+                raise PluginConfigurationError("process 'pattern' must be a non-empty string")
+        if has_task:
+            if not isinstance(item["task"], str) or not item["task"]:
+                raise PluginConfigurationError("process 'task' must be a non-empty string")
 
 
 def _validate_interval(value: Any) -> None:
@@ -253,6 +317,69 @@ def _validate_interval(value: Any) -> None:
 def _validate_bool(value: Any) -> None:
     if not isinstance(value, bool):
         raise PluginConfigurationError("report_recovery must be a bool")
+
+
+_MERGE_TABLE: dict[tuple[str, str], str] = {
+    ("running", "running"): "running",
+    ("running", "unobservable"): "running",
+    ("running", "missing"): "problem",
+    ("missing", "running"): "problem",
+    ("missing", "missing"): "missing",
+    ("missing", "unobservable"): "missing",
+    ("unobservable", "running"): "running",
+    ("unobservable", "missing"): "missing",
+    ("unobservable", "unobservable"): "unobservable",
+}
+
+
+def _merge_signals(task: str | None, process: str | None) -> str:
+    if task is None and process is None:
+        return "unknown"
+    if task is None:
+        return process  # type: ignore[return-value]
+    if process is None:
+        return task
+    return _MERGE_TABLE.get((task, process), "unknown")
+
+
+def _query_task(task_name: str) -> tuple[str, int | None]:
+    if sys.platform != "win32":
+        return "unobservable", None
+    safe_name = task_name.replace("'", "''")
+    try:
+        proc = subprocess.run(
+            [
+                "powershell", "-NoProfile", "-Command",
+                "$ErrorActionPreference='Stop';"
+                f"$t=Get-ScheduledTask -TaskName '{safe_name}';"
+                "$i=Get-ScheduledTaskInfo -InputObject $t;"
+                'Write-Output "$($t.State),$($i.LastTaskResult)"',
+            ],
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=2,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return "unobservable", None
+    if proc.returncode != 0:
+        return "unobservable", None
+    line = proc.stdout.strip()
+    if not line:
+        return "unobservable", None
+    parts = line.split(",", 1)
+    state = parts[0].strip()
+    last_result: int | None = None
+    if len(parts) > 1:
+        try:
+            last_result = int(parts[1].strip())
+        except ValueError:
+            pass
+    if state == "Running":
+        return "running", last_result
+    if state in ("Ready", "Queued", "Disabled"):
+        return "missing", last_result
+    return "unobservable", last_result
 
 
 def _enumerate_processes() -> tuple[list[tuple[int, str, str]], str | None]:
