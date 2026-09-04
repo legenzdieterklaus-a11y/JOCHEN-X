@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import platform
 import subprocess
 import sys
@@ -39,6 +40,7 @@ class WatchdogPlugin(BackgroundPlugin):
         self._statuses: dict[str, ProcessStatus] = {}
         self._status_map: dict[str, str] = {}
         self._lock = threading.Lock()
+        self._ambiguity_state: dict[str, tuple[int, datetime]] = {}
 
     def metadata(self) -> PluginMetadata:
         return PluginMetadata(
@@ -75,19 +77,22 @@ class WatchdogPlugin(BackgroundPlugin):
         if not entries:
             self.context.logger.warning("watchdog.empty_process_list")
         now = _now_iso()
-        result = _enumerate_processes()
+        result, fallback_reason = _enumerate_processes()
+        if fallback_reason is not None:
+            self.context.logger.warning(
+                "watchdog.enumeration_fallback", reason=fallback_reason,
+            )
         with self._lock:
             for entry in entries:
-                pid = _find_process(result, entry.pattern)
-                running = pid is not None
+                is_up, pid = self._resolve_match(entry, result)
                 self._statuses[entry.name] = ProcessStatus(
                     entry=entry,
-                    running=running,
+                    running=is_up,
                     pid=pid,
-                    last_seen=now if running else None,
+                    last_seen=now if is_up else None,
                     last_checked=now,
                 )
-                status = "running" if running else "missing"
+                status = "running" if is_up else "missing"
                 self._status_map[entry.name] = status
                 self._publish_state_changed(entry.name, status, "unknown", now)
         self.context.logger.info("watchdog.started")
@@ -106,6 +111,7 @@ class WatchdogPlugin(BackgroundPlugin):
         with self._lock:
             self._statuses.clear()
             self._status_map.clear()
+            self._ambiguity_state.clear()
         self.context.logger.info("watchdog.stopped")
 
     def on_shutdown(self) -> None:
@@ -124,7 +130,7 @@ class WatchdogPlugin(BackgroundPlugin):
     def _check_cycle(self) -> None:
         now = _now_iso()
         try:
-            result = _enumerate_processes()
+            result, fallback_reason = _enumerate_processes()
         except Exception:
             self.context.logger.error("watchdog.enumeration_failed")
             with self._lock:
@@ -142,13 +148,17 @@ class WatchdogPlugin(BackgroundPlugin):
                         self._publish_state_changed(name, "unknown", previous, now)
             return
 
+        if fallback_reason is not None:
+            self.context.logger.warning(
+                "watchdog.enumeration_fallback", reason=fallback_reason,
+            )
+
         entries = self._read_entries()
 
         with self._lock:
             for entry in entries:
-                pid = _find_process(result, entry.pattern)
+                is_up, pid = self._resolve_match(entry, result)
                 was_running = self._statuses.get(entry.name)
-                is_up = pid is not None
                 last_seen = now if is_up else (was_running.last_seen if was_running else None)
 
                 self._statuses[entry.name] = ProcessStatus(
@@ -164,6 +174,39 @@ class WatchdogPlugin(BackgroundPlugin):
                 if new_status != previous:
                     self._status_map[entry.name] = new_status
                     self._publish_state_changed(entry.name, new_status, previous, now)
+
+    def _resolve_match(
+        self, entry: ProcessEntry, processes: list[tuple[int, str, str]],
+    ) -> tuple[bool, int | None]:
+        matches = _find_process(processes, entry.pattern)
+        if len(matches) > 1:
+            if self._should_warn_ambiguity(entry.pattern, len(matches)):
+                pid_list = ", ".join(f"{p} {n}" for p, n in matches)
+                self.context.logger.warning(
+                    "watchdog.pattern_ambiguous",
+                    pattern=entry.pattern,
+                    matches=len(matches),
+                    details=f"[{pid_list}]",
+                )
+                self._ambiguity_state[entry.pattern] = (
+                    len(matches), datetime.now(timezone.utc),
+                )
+            return True, min(m[0] for m in matches)
+        if matches:
+            self._ambiguity_state.pop(entry.pattern, None)
+            return True, matches[0][0]
+        self._ambiguity_state.pop(entry.pattern, None)
+        return False, None
+
+    def _should_warn_ambiguity(self, pattern: str, match_count: int) -> bool:
+        state = self._ambiguity_state.get(pattern)
+        if state is None:
+            return True
+        last_count, last_time = state
+        if match_count != last_count:
+            return True
+        elapsed = datetime.now(timezone.utc) - last_time
+        return elapsed.total_seconds() >= 3600
 
     def _publish_state_changed(
         self, subject: str, status: str, previous: str, timestamp: str,
@@ -212,41 +255,79 @@ def _validate_bool(value: Any) -> None:
         raise PluginConfigurationError("report_recovery must be a bool")
 
 
-def _enumerate_processes() -> list[tuple[int, str]]:
+def _enumerate_processes() -> tuple[list[tuple[int, str, str]], str | None]:
     if sys.platform == "win32":
         return _enumerate_windows()
-    return _enumerate_posix()
+    return _enumerate_posix(), None
 
 
-def _enumerate_windows() -> list[tuple[int, str]]:
+def _enumerate_windows() -> tuple[list[tuple[int, str, str]], str | None]:
+    try:
+        return _enumerate_windows_cim(), None
+    except Exception as exc:
+        return _enumerate_windows_tasklist(), type(exc).__name__
+
+
+def _enumerate_windows_cim() -> list[tuple[int, str, str]]:
     proc = subprocess.run(
-        ["tasklist", "/FO", "CSV", "/NH"],
+        [
+            "powershell", "-NoProfile", "-Command",
+            "Get-CimInstance Win32_Process"
+            " | Select-Object ProcessId,Name,CommandLine"
+            " | ConvertTo-Csv -NoTypeInformation",
+        ],
         capture_output=True,
-        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=2,
     )
-    entries: list[tuple[int, str]] = []
-    for line in proc.stdout.splitlines():
-        line = line.strip()
-        if not line:
+    if proc.returncode != 0:
+        raise subprocess.SubprocessError(
+            f"powershell exited with code {proc.returncode}",
+        )
+    entries: list[tuple[int, str, str]] = []
+    lines = proc.stdout.splitlines()
+    for row in csv.reader(lines[1:]):
+        if len(row) < 2:
             continue
-        parts = line.split('","')
-        if len(parts) >= 2:
-            name = parts[0].strip('"')
-            try:
-                pid = int(parts[1].strip('"'))
-            except ValueError:
-                continue
-            entries.append((pid, name))
+        try:
+            pid = int(row[0])
+        except ValueError:
+            continue
+        name = row[1]
+        cmdline = row[2] if len(row) >= 3 else ""
+        entries.append((pid, name, cmdline or ""))
     return entries
 
 
-def _enumerate_posix() -> list[tuple[int, str]]:
+def _enumerate_windows_tasklist() -> list[tuple[int, str, str]]:
     proc = subprocess.run(
-        ["ps", "-eo", "pid,comm"],
+        ["tasklist", "/FO", "CSV", "/NH"],
         capture_output=True,
-        text=True,
+        encoding="utf-8",
+        errors="replace",
     )
-    entries: list[tuple[int, str]] = []
+    entries: list[tuple[int, str, str]] = []
+    for row in csv.reader(proc.stdout.splitlines()):
+        if len(row) < 2:
+            continue
+        name = row[0]
+        try:
+            pid = int(row[1])
+        except ValueError:
+            continue
+        entries.append((pid, name, ""))
+    return entries
+
+
+def _enumerate_posix() -> list[tuple[int, str, str]]:
+    proc = subprocess.run(
+        ["ps", "-eo", "pid,args"],
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    entries: list[tuple[int, str, str]] = []
     for line in proc.stdout.splitlines()[1:]:
         line = line.strip()
         if not line:
@@ -257,12 +338,21 @@ def _enumerate_posix() -> list[tuple[int, str]]:
                 pid = int(parts[0])
             except ValueError:
                 continue
-            entries.append((pid, parts[1]))
+            args = parts[1]
+            first_word = args.split()[0] if args.strip() else ""
+            if first_word.startswith("["):
+                name = first_word
+            else:
+                name = first_word.rsplit("/", 1)[-1]
+            entries.append((pid, name, args))
     return entries
 
 
-def _find_process(processes: list[tuple[int, str]], pattern: str) -> int | None:
-    for pid, name in processes:
-        if pattern in name:
-            return pid
-    return None
+def _find_process(
+    processes: list[tuple[int, str, str]], pattern: str,
+) -> list[tuple[int, str]]:
+    matches: list[tuple[int, str]] = []
+    for pid, name, cmdline in processes:
+        if pattern in name or (cmdline and pattern in cmdline):
+            matches.append((pid, name))
+    return matches
